@@ -3,7 +3,7 @@
 umask 077
 # ==================================================
 _APP_SPECIFIC_NAME="Maxipi"
-_APP_VERSION="1.0"
+_APP_VERSION="1.0.1"
 _APP_STATUS="alpha"
 _APP_INFO="${_APP_SPECIFIC_NAME} is a bash script used for executing API from various providers
 such as linode, Digitalocean, Microsoft Azure, CloudFlare, Directadmin and etc"
@@ -895,7 +895,7 @@ linode_api() {
 
   API_PROVIDER="linode"
 
-  api_url="${LINODE_API_PROTOCOL}://${LINODE_API_DOMAIN}"
+  api_url="https://${LINODE_API_URL}"
 
   api_auth_string="Authorization: Bearer ${LINODE_API_KEY}"
 
@@ -4199,10 +4199,10 @@ directadmin_api() {
     esac
   done
 
-  if is_valid ssl_site "${DIRECTADMIN_API_PROTOCOL}://${DIRECTADMIN_API_DOMAIN}:${DIRECTADMIN_API_PORT}"; then
-    api_url="https://${DIRECTADMIN_API_DOMAIN}:${DIRECTADMIN_API_PORT}"
+  if is_valid ssl_site "${DIRECTADMIN_API_URL}:${DIRECTADMIN_API_PORT}"; then
+    api_url="https://$(echo "${DIRECTADMIN_API_URL}" | awk -F/ '{print $3}'):${DIRECTADMIN_API_PORT}"
   else
-    api_url="http://${DIRECTADMIN_API_DOMAIN}:${DIRECTADMIN_API_PORT}"
+    api_url="http://$(echo "${DIRECTADMIN_API_URL}" | awk -F/ '{print $3}'):${DIRECTADMIN_API_PORT}"
   fi
 
   if [ -z "${api_username}" ]; then
