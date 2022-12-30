@@ -3,23 +3,21 @@
 umask 077
 # ==================================================
 _APP_SPECIFIC_NAME="Maxipi"
-_APP_VERSION="1.0.3"
+_APP_VERSION="1.0.4"
 _APP_STATUS="alpha"
 _APP_INFO="${_APP_SPECIFIC_NAME} is a bash script used for executing API from various providers
 such as linode, Digitalocean, Microsoft Azure, CloudFlare, Directadmin and etc"
 _APP_VERSION_STATUS="${_APP_VERSION}-${_APP_STATUS}"
 _AUTHOR="Author: Arafat Ali | Email: arafat@sofibox.com | (C) 2019-2022"
 # ====================================================
-# TESTING
-# Testing again remember this is an alpha version im testing again.. and i will remove this repo and start again with beta version
 
-# start TODO_LIST
-# TODO add API setup for linode (and others)
-# end TODO_LIST
+# start TODO list
+#
+# end TODO list
 
 # requirements
-# This script use the enhanced getopt (for implementing long options), Most GNU distro came with enhanced getopt to run this script.
-# The getopt only use in sub function
+
+# getopt enhanced version - Most Linux distros have it installed by default.
 
 # This is used to display script help file
 usage() {
@@ -86,9 +84,9 @@ check_update() {
   local caller temp_file
   caller="${SCRIPT_NAME}->${FUNCNAME[0]}"
   echo "[${caller}]: Checking ${SCRIPT_NAME} for update..."
-  temp_file="${TEMP_PATH}/maxipi"
+  temp_file="${TEMP_PATH}/${SCRIPT_NAME}"
   # The github raw hosting will not be updated immediately after I push the update to github. Need to wait about 5 minutes
-  curl -H 'Cache-Control: no-cache' -so "${temp_file}" "https://raw.githubusercontent.com/sofibox/maxipi_public/main/maxipi"
+  curl -H 'Cache-Control: no-cache' -so "${temp_file}" "https://raw.githubusercontent.com/sofibox/${SCRIPT_NAME}_public/main/${SCRIPT_NAME}"
   status_handler check --code $?
   available_version="$(awk -F'=' '/^_APP_VERSION=/{ print $2 }' "${temp_file}" | sed 's/\"//g')"
   this_version="${_APP_VERSION}"
@@ -110,28 +108,9 @@ check_update() {
 }
 
 manual() {
-  # This will show specific help name
-  local api_provider api_action
-  api_provider="$1"
-  api_action="$2"
-  echo "HELP MANUAL"
-  echo "==========="
-  echo ""
-  if [ "${api_provider}" == "linode_api" ]; then
-
-    if [ "${api_action}" == "get-linode-id" ]; then
-      echo "linode_api->get-linode-id"
-      echo ""
-      echo "Required: --linode-label<LINODE_LABEL> or --server-label <LINODE_LABEL>"
-      echo ""
-      echo "Example:"
-      echo "${SCRIPT_NAME} linode get-linode-id --linode-label sun.sofibox.com"
-      echo ""
-      echo "Output:"
-      echo "12345"
-    fi
-
-  fi
+  # This is a placeholder for manual function
+  # You can add your own manual here
+  :
 }
 
 to_ordinal() {
@@ -3129,6 +3108,127 @@ linode_api() {
         --success-msg "the domain name ${domain_name} has been deleted"
 
     done
+    #   maxipi linode get-record-id --for-domain sofibox.com --for-record-type A --for-record-name "${C_BOX_DOMAIN}" --for-record-value  --scripting)
+
+  elif [[ "${action^^}" == +(GET-RECORD-ID) ]]; then
+
+    local domain_id record_ids json_search_string json_query_data
+
+    if [ "${help}" == true ]; then
+      echo ""
+      echo "Action name: ${action}"
+      echo "Required option(s):"
+      echo "   --for-domain <domain_name>"
+      echo "This action also required at least one of the following search options for searching existing domain record to get ID"
+      echo "   --for-record-name <record_name>, --for-record-value <record_value>, --for-record-type <record_type>"
+      echo "Purpose: This action is used to get domain record(s) in linode based on a given domain name and one or more search options"
+      echo "Notes:"
+      echo "DNS records are huge and may contain duplicated entries. So, it is not easy to retrieve them based on reference key like --record-name. So, you can provide more search option to find the exact record"
+      echo "You might want to use the option --first-record to search only the first record or --last-record to search only the last record"
+      echo "When you search for a record that is not editable for example linode name server, it will not show up in the result. Hence, the record cannot be searched"
+      echo "Example 1: (This will search the record name www that has a value 1.1.1.1 (usually from an A record) and get the ID"
+      echo "    ${SCRIPT_NAME} linode ${action} --for-domain sofibox.com --for-record-name www --record-value 1.1.1.1"
+      echo "Example 2 (This will search the record with record type of TXT where it contains a record name _dkim):"
+      echo "    ${SCRIPT_NAME} linode ${action} --for-domain sofibox.com --for-record-type TXT --for-record-name _dkim --record-value 123"
+      echo "Example 3 (Because some records can be duplicated, you can provide more search options to find exactly what you want):"
+      echo "    ${SCRIPT_NAME} linode ${action} --for-domain sofibox.com --for-record-type MX --for-record-name abc.com --for-record-value the_value"
+      echo ""
+      _exit 0
+    fi
+
+    if [ -z "${for_domain_name}" ]; then
+      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)"
+      [[ ${scripting} == "true" ]] && echo "error"
+      _exit 1
+    fi
+
+    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required domain ID for --for-domain-name ${for_domain_name} ..."
+
+    domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.domain == \"${for_domain_name}\") | .id")
+    status_handler check --curl-status "$?"
+
+    if [ -z "${domain_id}" ]; then
+      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain is found --for-domain ${for_domain_name}"
+      [[ ${scripting} == "true" ]] && echo "error"
+      _exit 1
+    fi
+
+    # Create a json search string
+    if [ -n "${for_record_name}" ]; then
+      if [ -z "${json_search_string}" ]; then
+        json_search_string="(.name==\"${for_record_name}\")"
+      else
+        json_search_string="${json_search_string} and (.name==\"${for_record_name}\")"
+      fi
+    fi
+
+    if [ -n "${for_record_value}" ]; then
+      if [ -z "${json_search_string}" ]; then
+        json_search_string="(.target==\"${for_record_value}\")"
+      else
+        json_search_string="${json_search_string} and (.target==\"${for_record_value}\")"
+      fi
+    fi
+
+    if [ -n "${for_record_type}" ]; then
+      if [ -z "${json_search_string}" ]; then
+        json_search_string="(.type==\"${for_record_type}\")"
+      else
+        json_search_string="${json_search_string} and (.type==\"${for_record_type}\")"
+      fi
+    fi
+
+    if [ -z "${json_search_string}" ]; then
+      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, you must provide at least one search option (eg: --for-record-name abc)"
+      [[ ${scripting} == "true" ]] && echo "error"
+      _exit 1
+    fi
+
+    [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching record in domain ${for_domain_name} ..."
+
+    record_ids=$(curl -s -G -H "${api_auth_string}" --url "${api_url}/domains/${domain_id}/records?page_size=${linode_max_page_size}" | jq ".data[] | select(${json_search_string}) | .id")
+    status_handler check --curl-status "$?"
+
+    if [[ -n "${record_ids}" ]]; then
+      local record_ids_count count_deleted count_search
+
+      [[ ${scripting} == "false" ]] && echo ""
+      [[ ${scripting} == "false" ]] && echo "Record details:"
+      [[ ${scripting} == "false" ]] && echo "=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~="
+
+      # If the option --first-record or --last-record is there, we filter this to only use one record
+      if [ "${first_record}" == true ]; then
+        record_ids=$(echo "${record_ids}" | head -n1)
+        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (first record): "
+      elif [ "${last_record}" == true ]; then
+        record_ids=$(echo "${record_ids}" | tail -n1)
+        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (last record): "
+      else
+        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record(s) selected: "
+      fi
+
+      count_search=0
+
+      for record_id in ${record_ids}; do
+        ((count_search++))
+        [[ ${scripting} == "false" ]] && echo "${count_search}) $(curl -s -G -H "${api_auth_string}" --url "${api_url}/domains/${domain_id}/records?page_size=${linode_max_page_size}" | jq ".data[] | select(.id == ${record_id})")"
+        [[ ${scripting} == "true" ]] && echo "${record_id}"
+      done
+
+      [[ ${scripting} == "false" ]] && echo ""
+      [[ ${scripting} == "false" && -n "${for_domain_name}" ]] && echo "Search result for domain name: ${for_domain_name}"
+      [[ ${scripting} == "false" && -n "${for_record_name}" ]] && echo "Search result for domain record name: ${for_record_name}"
+      [[ ${scripting} == "false" && -n "${for_record_value}" ]] && echo "Search result for domain record value: ${for_record_value}"
+      [[ ${scripting} == "false" && -n "${for_record_type}" ]] && echo "Search result for domain record type: ${for_record_type}"
+      [[ ${scripting} == "false" ]] && echo ""
+      [[ ${scripting} == "false" ]] && echo "=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~="
+      [[ ${scripting} == "false" ]] && echo ""
+
+    else
+      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain record is found based on the provided search!"
+      [[ ${scripting} == "true" ]] && echo "error"
+      _exit 1
+    fi
 
   # v1.0
   elif [[ "${action^^}" == +(DOMAIN-CREATE-RECORD|CREATE-RECORD|CREATE-DOMAIN-RECORD|DOMAIN-ADD-RECORD|ADD-DOMAIN-RECORD|CREATE-DNS-RECORD|DNS-CREATE-RECORD|ADD-DNS-RECORD|DNS-ADD-RECORD) ]]; then
@@ -4426,10 +4526,11 @@ ARGNUM="$#"
 OLD_PATH=""
 
 CONFIG_FILE="${SCRIPT_PATH}/${SCRIPT_NAME}.conf"
+CONFIG_FILE_SAMPLE="${SCRIPT_PATH}/${SCRIPT_NAME}.conf.sample"
 
 if ! [ -s "${CONFIG_FILE}" ]; then
   # Copy a new config file from the template
-  cp "${CONFIG_FILE}.sample" "${CONFIG_FILE}"
+  cp "${CONFIG_FILE_SAMPLE}" "${CONFIG_FILE}"
 fi
 
 source "${CONFIG_FILE}"
