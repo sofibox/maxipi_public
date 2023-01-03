@@ -3,7 +3,7 @@
 umask 077
 # ==================================================
 _APP_SPECIFIC_NAME="Maxipi"
-_APP_VERSION="1.0.7"
+_APP_VERSION="1.0.8"
 _APP_STATUS="alpha"
 _APP_INFO="${_APP_SPECIFIC_NAME} is a bash script used for executing API from various providers
 such as linode, Digitalocean, Microsoft Azure, CloudFlare, Directadmin and etc"
@@ -4536,11 +4536,11 @@ if ! command -v maxibuild >/dev/null 2>&1; then
   exit 1
 fi
 
-REQUIREMENTS=$(awk -F'=' /"^$(get_distro id)="/'{print $2}' requirement.txt | tr ',' '\n')
+REQUIREMENTS=$(awk -F'=' /"^$(get_distro id)="/'{print $2}' "${SCRIPT_PATH}/requirement.txt" | tr ',' '\n')
 if [ -n "${REQUIREMENTS}" ]; then
   maxibuild --include "${REQUIREMENTS[@]}"
 else
-  echo "Error, the requirements for operating system ID $(get_distro id) is not defined in requirement.txt"
+  echo "Error, the package requirements for operating system ID $(get_distro id) is not defined in ${SCRIPT_PATH}/requirement.txt"
   exit 1
 fi
 
