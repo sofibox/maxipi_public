@@ -1,0 +1,6 @@
+# Maxibuild package requirements
+debian="bsd-mailx,curl,ipcalc,dnsutils,jq"
+ubuntu="bsd-mailx,curl,ipcalc,dnsutils,jq"
+centos="mail-utils,curl,ipcalc,bind-utils,jq"
+rockylinux="mail-utils,curl,ipcalc,bind-utils,jq"
+almalink="mail-utils,curl,ipcalc,bind-utils,jq"

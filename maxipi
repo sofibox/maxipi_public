@@ -3,7 +3,7 @@
 umask 077
 # ==================================================
 _APP_SPECIFIC_NAME="Maxipi"
-_APP_VERSION="1.0.6"
+_APP_VERSION="1.0.7"
 _APP_STATUS="alpha"
 _APP_INFO="${_APP_SPECIFIC_NAME} is a bash script used for executing API from various providers
 such as linode, Digitalocean, Microsoft Azure, CloudFlare, Directadmin and etc"
@@ -221,7 +221,6 @@ required_packages() {
       if [ "${required_cmd}" == "linode-cli" ]; then
         # local linode_cli_expect_string
         # Install required packages to enable linode-cli command
-        _confirm "Do you want to install linode-cli and its packages?"
         apt-get -y install python3-pip
         pip3 install linode-cli --upgrade
 
@@ -260,11 +259,9 @@ required_packages() {
 
         # linode-cli --version
       elif [ "${required_cmd}" == "mail" ]; then
-        _confirm "Do you want to install mailutils?"
         apt-get -y install mailutils
         retval=$?
       elif [ "${required_cmd}" == "ipcalc" ]; then
-        _confirm "Do you want to install ipcalc and its components?"
         echo "[${SCRIPT_NAME}]: Installing required packages to build ipcalc"
         sudo apt-get -y install git gcc meson
         echo "[${SCRIPT_NAME}]: Removing existing ipcalc ..."
@@ -578,7 +575,7 @@ is_valid() {
     fi
   # This will check if the given domain and IPv4 are resolved to each other
   elif [[ "${type}" == "ipv4-resolved" || "${type}" == "ipv4_resolved" ]]; then
-    required_packages "dnsutils"
+    # required_packages "dnsutils"
     local ipv4 ipv4_propagated domain
     ipv4="${data1}"
     domain="${data2}"
@@ -594,7 +591,7 @@ is_valid() {
 
     # This will check if the given domain and IPv6 are resolved to each other
   elif [[ "${type}" == "ipv6-resolved" || "${type}" == "ipv6_resolved" ]]; then
-    required_packages "dnsutils"
+    # required_packages "dnsutils"
     local ipv6 ipv6_propagated domain
     ipv6="${data1}"
     domain="${data2}"
@@ -880,7 +877,7 @@ linode_api() {
   api_auth_string="Authorization: Bearer ${LINODE_API_KEY}"
 
   # New code does not require linode-cli. We only need jq to manipulate json data
-  required_packages "jq"
+  # required_packages "jq"
 
   # Return the number of item. Maximum page size is 500 (based on the API test value)
   linode_max_page_size=500
@@ -4170,7 +4167,7 @@ directadmin_api() {
 
   API_PROVIDER="directadmin"
 
-  required_packages "jq"
+  #required_packages "jq"
 
   short_opts="h,c:,v,d,s,q"
   long_opts="help,config-file:,config:,verbose,debug,scripting,without-prompt,quite,sign-as:,signas:,login-as:,for-user:,username:,password:,for-username:,api-username:,\
@@ -4447,7 +4444,6 @@ directadmin_api() {
         else
           given_form="${prefix}"
         fi
-
       fi
     fi
 
@@ -4490,16 +4486,65 @@ namecheap_api() {
   :
 }
 
+# This function gets the operating system ID, version number and codename
+# syntax: get_distro <id|version|codename>
+# eg: get_distro id | sample output: centos
+get_distro() {
+  local arg distro_id distro_version distro_codename
+  arg="$1"
+  # any new Linux distribution must have this (it is a standard file os checking for linux)
+  if [ -e /etc/os-release ]; then
+    # get the distro ID from /etc/os-release and make sure it is in lowercase format without any double quotations
+    distro_id=$(awk -F= '$1 == "ID" {print $2}' /etc/os-release | LC_ALL=C tr '[:upper:]' '[:lower:]' | tr -d "\"")
+    distro_version=$(awk -F= '$1 == "VERSION_ID" {print $2}' /etc/os-release | tr -d "\"")
+    distro_codename=$(awk -F= '$1 == "VERSION_CODENAME" {print $2}' /etc/os-release | tr -d "\"")
+
+  # but just in case (a small case) if it doesn't have this then we can use lsb_release command
+  elif type lsb_release >/dev/null 2>&1; then
+    # get the distro id using lsb_release function.
+    # if the ID has uppercase letter, cover it to lowercase
+    distro_id=$(lsb_release -si | LC_ALL=C tr '[:upper:]' '[:lower:]')
+    distro_version=$(lsb_release -sr)
+    distro_codename=$(lsb_release -sc)
+  # else if that doesn't exist at all, we can use the standard checking version format: "Linux <version>"
+  else
+    # this will not printout a single distribution ID that we want (it prints out the Generic Linux kernel version)
+    # but using this we should terminate this script because we only need single distribution ID (eg: debian)
+    distro_id=$(uname -s)
+    distro_version=$(uname -r)
+    distro_codename=""
+  fi
+  # return values here with echo
+  if [ "${arg}" == "id" ]; then
+    echo "${distro_id}"
+  elif [ "${arg}" == "version" ]; then
+    echo "${distro_version}"
+  elif [ "${arg}" == "codename" ]; then
+    echo "${distro_codename}"
+  fi
+}
+
 ADMIN_EMAIL="webmaster@sofibox.com"
 SCRIPT_PATH="$(dirname "$(readlink -f "$0")")"
 SCRIPT_NAME=$(basename -- "$0")
 SCRIPT_INSTALL_PATH="/usr/local/maxicode/${SCRIPT_NAME}"
 BOX_HOSTNAME=$(hostname)
 
-required_packages "mail" "curl" "ipcalc"
+if ! command -v maxibuild >/dev/null 2>&1; then
+  echo "Error, this script requires maxibuild to be installed. Please install maxibuild first."
+  echo "https://github.com/sofibox/maxibuild_public"
+  exit 1
+fi
+
+REQUIREMENTS=$(awk -F'=' /"^$(get_distro id)="/'{print $2}' requirement.txt | tr ',' '\n')
+if [ -n "${REQUIREMENTS}" ]; then
+  maxibuild --include "${REQUIREMENTS[@]}"
+else
+  echo "Error, the requirements for operating system ID $(get_distro id) is not defined in requirement.txt"
+  exit 1
+fi
 
 MAIL_BIN=$(command -v mail)
-
 LOG_PATH="${SCRIPT_PATH}/log"
 CONFIG_PATH="${SCRIPT_PATH}/conf"
 CODE_PATH="${SCRIPT_PATH}/code"
@@ -4531,6 +4576,7 @@ OLD_PATH=""
 CONFIG_FILE="${SCRIPT_PATH}/${SCRIPT_NAME}.conf"
 CONFIG_FILE_SAMPLE="${SCRIPT_PATH}/${SCRIPT_NAME}.conf.sample"
 
+# If the config file does not exist, then create it from the sample
 if ! [ -s "${CONFIG_FILE}" ]; then
   # Copy a new config file from the template
   cp "${CONFIG_FILE_SAMPLE}" "${CONFIG_FILE}"
@@ -4553,7 +4599,6 @@ while [ "${ARGNUM}" -gt 0 ]; do
     exit ${RETVAL}
     ;;
   -t | --test)
-
     exit 0
     ;;
   -u | --update | update)
@@ -4576,7 +4621,7 @@ while [ "${ARGNUM}" -gt 0 ]; do
     exit ${RETVAL}
     break
     ;;
-  show-script-path | get-script-path | script-path)
+  show-script-path | get-script-path | get-path | script-path | path)
     echo "${SCRIPT_PATH}"
     RETVAL="$?"
     exit ${RETVAL}
