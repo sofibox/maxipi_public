@@ -1,0 +1,6 @@
+# Maxibuild command requirements
+debian="mail,curl,ipcalc,dig,jq"
+ubuntu="mail,curl,ipcalc,dig,jq"
+centos="mail,curl,ipcalc,dig,jq"
+rockylinux="mail,curl,ipcalc,dig,jq"
+almalink="mail,curl,ipcalc,dig,jq"
