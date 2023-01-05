@@ -107,6 +107,359 @@ check_update() {
   rm -f "${temp_file}"
 }
 
+end() {
+  tput sgr0
+}
+
+e() {
+  tput sgr0
+}
+
+start() {
+  txt "$@"
+}
+s() {
+  txt "$@"
+}
+
+# This function is used to display color text
+txt() {
+  local mode="$1"
+  shift
+  if [[ "${mode^^}" == +(BLACK|RED|GREEN|YELLOW|BLUE|MAGENTA|CYAN) ]]; then
+    if ! [[ ${mode} =~ ^[0-9]$ ]]; then
+      case $(echo "${mode}" | tr '[:upper:]' '[:lower:]') in
+      black) mode=0 ;;
+      red) mode=1 ;;
+      green) mode=2 ;;
+      yellow) mode=3 ;;
+      blue) mode=4 ;;
+      magenta) mode=5 ;;
+      cyan) mode=6 ;;
+      end)
+        tput sgr0
+        return 0
+        ;;
+      # white or invalid color
+      white | *) mode=7 ;;
+      esac
+    fi
+    tput setaf ${mode}
+  elif [[ "${mode^^}" == +(NEWLINE|LINE) ]]; then
+    local count=$1 str=""
+    if [[ -z "${count}" || "${count}" -eq 0 || "${count}" -eq 1 ]]; then
+      return 0
+    fi
+    for ((i = 1; i <= count - 1; i++)); do
+      str="${str}\n"
+    done
+    if [ "$$" -eq "${BASHPID}" ]; then
+      for ((i = 1; i <= count - 2; i++)); do
+        str="${str}\n"
+      done
+      echo -e "${str}"
+    else
+      for ((i = 1; i <= count - 1; i++)); do
+        str="${str}\n"
+      done
+      # Using -e option here will not work if call inside string such as echo.
+      echo "${str}"
+    fi
+  elif [[ "${mode^^}" == +(NEWTAB|TAB) ]]; then
+    local count=$1 str=""
+    if [[ -z "${count}" || "${count}" -eq 0 || "${count}" -eq 1 ]]; then
+      return 0
+    fi
+
+    if [ "$$" -eq "${BASHPID}" ]; then
+      for ((i = 1; i <= count - 2; i++)); do
+        str="${str}\t"
+      done
+      echo -e "${str}"
+    else
+      for ((i = 1; i <= count - 1; i++)); do
+        str="${str}\t"
+      done
+      # Using -e option here will not work if call inside string such as echo.
+      echo "${str}"
+    fi
+  elif [[ "${mode^^}" == +(COLOR|COLOR|FOREGROUND|CLR|FG|C|F) ]]; then
+    local color=$1
+    if ! [[ $color =~ ^[0-9]$ ]]; then
+      case $(echo "${color}" | tr '[:upper:]' '[:lower:]') in
+      black) color=0 ;;
+      red) color=1 ;;
+      green) color=2 ;;
+      yellow) color=3 ;;
+      blue) color=4 ;;
+      magenta) color=5 ;;
+      cyan) color=6 ;;
+      end)
+        tput sgr0
+        return 0
+        ;;
+      # white or invalid color
+      white | *) color=7 ;;
+      esac
+    fi
+    tput setaf ${color}
+  # Set the background colour using ANSI escape
+  elif [[ "${mode^^}" == +(BACKGROUND|BG|B) ]]; then
+    local color=$1
+    if ! [[ $color =~ ^[0-9]$ ]]; then
+      case $(echo "${color}" | tr '[:upper:]' '[:lower:]') in
+      black) color=0 ;;
+      red) color=1 ;;
+      green) color=2 ;;
+      yellow) color=3 ;;
+      blue) color=4 ;;
+      magenta) color=5 ;;
+      cyan) color=6 ;;
+      end)
+        tput sgr0
+        return 0
+        ;;
+      # white or invalid color
+      white | *) color=7 ;;
+      esac
+    fi
+    tput setab ${color}
+
+  elif [[ ${mode^^} == +(BOLD|DIM|INVI|BLINK|REVERSE|ULINE|UNDERLINE|XULINE|FOCUS|STANDOUT|XFOCUS|BELL|ALERT|CLEAR|CLR|END) ]]; then
+    case $(echo "${mode}" | tr '[:upper:]' '[:lower:]') in
+    bold) mode="bold" ;;
+    dim) mode="dim" ;;
+    invi) mode="invis" ;;
+    blink) mode="blink" ;;
+    reverse) mode="rev" ;;
+    uline | underline) mode="smul" ;;
+    xuline) mode="rmul" ;;
+    focus | standout) mode="smso" ;;
+    xfocus) mode="rmso" ;;
+    bell | alert) mode="bel" ;;
+    clear | clr | end) mode="sgr0" ;;
+    *)
+      echo "Error, invalid argument supplied for text mode: ${mode}!"
+      exit 1
+      ;;
+    esac
+    tput "${mode}"
+    shopt -u nocasematch
+  # Note: Not all modes work for every terminal especially, bold, dim, invi, blink
+  elif [[ "${mode^^}" == +(MODE|M) ]]; then
+    local mode=$1
+    case $(echo "${mode}" | tr '[:upper:]' '[:lower:]') in
+    bold) mode="bold" ;;
+    dim) mode="dim" ;;
+    invi) mode="invis" ;;
+    blink) mode="blink" ;;
+    reverse) mode="rev" ;;
+    uline | underline) mode="smul" ;;
+    xuline) mode="rmul" ;;
+    focus | standout) mode="smso" ;;
+    xfocus) mode="rmso" ;;
+    bell | alert) mode="bel" ;;
+    clear | clr | end) mode="sgr0" ;;
+    *)
+      echo "Error, invalid argument supplied for text mode: ${mode}!"
+      exit 1
+      ;;
+    esac
+
+    tput "${mode}"
+  elif [[ "${mode^^}" == +(END|RESET|X|E) ]]; then
+    tput sgr0
+  fi
+}
+# This function is used to display a text in terminal. This is similar to echo() function excepts:
+# 1. It can display color text using predefined options --msg-type: (eg: --msg-type=error or --msg-error)
+# 2. It can make the text spinning with a tiny progress animation that can be customized using the option --progress-style: (eg: --progress-style="|/-\")
+# 3. It can display an information about whose call this function by using the option --caller: (eg: --caller="my_function")
+# 5. It can be run as a standalone spinning progress without defining a loop using the option --start-spin-loop: (eg: --start-spin-loop <duration>)
+# 6. It can be used with txt() function to customize more color and mode options.
+
+# Usage: msg <message> <options>
+# Example 1: To display a normal message
+# msg "This is a normal message"
+# Example 2: To display a message with a spinning progress animation (this need to be run inside a loop to show the animation)
+# msg "This is a message with a spinning progress animation" --start-spinning --progress-style="|/-\"
+# Example 3: To display a message with a spinning progress animation and a caller information (this need to be run inside a loop to show the animation)
+# msg "This is a message with a spinning progress animation and a caller information" --start-spinning --progress-style="|/-\" --caller="my_function"
+# Example 4: To display a message with a spinning progress animation and a message type (this need to be run inside a loop to show the animation)
+# msg "This is a message with a spinning progress animation and a caller information and a message type" --start-spinning --msg-type="error"
+# Example 5: To display a standalone spinning progress animation (this does not need to be run inside a loop to show the animation)
+# msg "Waiting ..." --start-spin-loop 10
+# Example 6: To use with txt() function to display a message with a spinning progress animation and a message type (this need to be run inside a loop to show the animation)
+# msg "$(s red)This is red$(end). $(s blue)This is blue$(end)$(s bold)This is bold$(end)" --start-spinning --msg-type="info"
+# Example 7: To stop a spinning progress animation inside a loop use --stop-spinning or -stop-spinning-newline
+# msg "Done" --stop-spinning (this will replace the previous message with 'Done')
+# msg "Done" --stop-spinning-newline (this will not replace the previous message and the message 'Done' will be displayed in a new line)
+# Requirement:
+# This function requires a global variable PROGRESS_SPIN_COUNT=0 to be defined in the main script. This variable is used to keep track of the progress animation.
+msg() {
+  declare caller msg start_spin start_spin_loop stop_spin stop_spin_newline msg_info msg_warn msg_error msg_success msg_debug msg_type progress_style msg_caller
+  caller="$(basename -- "$0")->${FUNCNAME[0]}"
+  msg="$1"
+  start_spin=false
+  start_spin_loop=""
+  stop_spin=false
+  stop_spin_newline=false
+  msg_info=false
+  msg_warn=false
+  msg_error=false
+  msg_success=false
+  msg_debug=false
+  msg_type=""
+  progress_style=""
+  msg_caller=""
+
+  shift
+  while true; do
+    case "$1" in
+    --spin | --start-spin | --start-spinning)
+      start_spin=true
+      shift
+      ;;
+    --spin-loop | --start-spin-loop | --start-spinning-loop | --start-spin-until)
+      start_spin_loop="$2"
+      shift 2
+      ;;
+    --spin-loop=* | --start-spin-loop=* | --start-spinning-loop=* | --start-spin-until=*)
+      start_spin_loop="${1#*=}"
+      shift
+      ;;
+    --stop | --end-spin | --stop-spin | --stop-spinning)
+      stop_spin=true
+      shift
+      ;;
+    --stop-newline | --end-spin-newline | --stop-spin-newline | --stop-spinning-newline)
+      stop_spin_newline=true
+      shift
+      ;;
+
+    -i | --info | --msg-info)
+      msg_info=true
+      shift
+      ;;
+    -w | --warn | --warning | --msg-warn)
+      msg_warn=true
+      shift
+      ;;
+    -e | --error | --msg-error)
+      msg_error=true
+      shift
+      ;;
+    -s | --success | --msg-success)
+      msg_success=true
+      shift
+      ;;
+    -d | --debug | --msg-debug)
+      msg_debug=true
+      shift
+      ;;
+    -t | --type | --msg-type)
+      msg_type="$2"
+      shift 2
+      ;;
+    -t=* | --type=* | --msg-type=*)
+      msg_type="${1#*=}"
+      shift
+      ;;
+    -p | --progress | --progress-style)
+      progress_style="$2"
+      shift 2
+      ;;
+    -p=* | --progress=* | --progress-style=*)
+      progress_style="${1#*=}"
+      shift
+      ;;
+    -c | --caller | --show-caller | --msg-caller)
+      msg_caller="$2"
+      shift 2
+      ;;
+    -c=* | --caller=* | --show-caller=* | --msg-caller=*)
+      msg_caller="${1#*=}"
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "[${caller}]: Error, unknown option: $1"
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+    esac
+  done
+
+  if [[ ${start_spin} == "true" && ${stop_spin} == "true" ]]; then
+    echo -e "\n$(tput setaf 1)[${caller}]: Error, the option --start-spin and --stop-spin cannot appear at the same time!$(tput sgr0)"
+    exit 1
+  fi
+
+  if [[ "${start_spin}" == "true" && "${start_spin_loop}" != "" ]]; then
+    echo -e "\n$(tput setaf 1)[${caller}]: Error, the option --start-spin and --start-spin-loop cannot appear at the same time!$(tput sgr0)"
+    exit 1
+  fi
+
+  if [[ "${stop_spin}" == "true" && "${stop_spin_newline}" == "true" ]]; then
+    echo -e "\n$(tput setaf 1)[${caller}]: Error, the option --stop-spin and --stop-spin-newline cannot appear at the same time!$(tput sgr0)"
+    exit 1
+  fi
+
+  # Show caller if enable
+  if [ -n "${msg_caller}" ]; then
+    msg="[${msg_caller}]: ${msg}"
+  fi
+
+  if [[ -z "${progress_style}" ]]; then
+    progress_style="/-\|"
+  fi
+
+  # info = blue, warn = yellow, error = red, success = green, debug = magenta
+  if [[ "${msg_info}" == "true" || "${msg_type}" == "info" ]]; then
+    msg="$(tput setaf 6)${msg}$(tput sgr0)"
+  elif [[ "${msg_warn}" == "true" || "${msg_type}" == "warning" ]]; then
+    msg="$(tput setaf 3)${msg}$(tput sgr0)"
+  elif [[ "${msg_error}" == "true" || "${msg_type}" == "error" ]]; then
+    msg="$(tput setaf 1)${msg}$(tput sgr0)"
+  elif [[ "${msg_success}" == "true" || "${msg_type}" == "success" ]]; then
+    msg="$(tput setaf 2)${msg}$(tput sgr0)"
+  elif [[ "${msg_debug}" == "true" || "${msg_type}" == "debug" ]]; then
+    msg="$(tput setaf 5)${msg}$(tput sgr0)"
+  else
+    msg="$(tput setaf 7)${msg}$(tput sgr0)"
+  fi
+
+  if [[ ${start_spin} == "true" ]]; then
+
+    echo -ne "\r\e[0K${msg} [${progress_style:PROGRESS_SPIN_COUNT++:1}]"
+    ((PROGRESS_SPIN_COUNT == ${#progress_style})) && PROGRESS_SPIN_COUNT=0
+    tput civis
+  elif [[ -n ${start_spin_loop} ]]; then
+    for ((i = 0; i < start_spin_loop; i++)); do
+      echo -ne "\r\e[0K${msg} [${progress_style:PROGRESS_SPIN_COUNT++:1}]"
+      ((PROGRESS_SPIN_COUNT == ${#progress_style})) && PROGRESS_SPIN_COUNT=0
+      tput civis
+      sleep 1
+    done
+    echo ""
+  elif [[ ${stop_spin} == "true" ]]; then
+    echo -ne "\r\e[0K${msg}\n"
+    tput cnorm
+  elif [ "${stop_spin_newline}" == true ]; then
+    echo -e "\n${msg}"
+    tput cnorm
+  else
+    echo -e "${msg}"
+    tput cnorm
+  fi
+
+}
+
 manual() {
   # This is a placeholder for manual function
   # You can add your own manual here
@@ -4536,9 +4889,9 @@ if ! command -v maxibuild >/dev/null 2>&1; then
   exit 1
 fi
 
-REQUIRED_COMMANDS=$(awk -F'=' /"^$(get_distro id)="/'{print $2}' "${SCRIPT_PATH}/required_commands.txt" | tr ',' '\n' | tr -d '"')
+REQUIRED_COMMANDS=$(awk -F'=' /"^$(get_distro id)="/'{print $2}' "${SCRIPT_PATH}/required_commands.txt" | tr ',' '\n')
 if [ -n "${REQUIRED_COMMANDS}" ]; then
-  maxibuild --include "${REQUIRED_COMMANDS[@]}"
+  maxibuild --include "${REQUIRED_COMMANDS}"
 else
   echo "Error, the required commands for operating system ID $(get_distro id) is not defined in ${SCRIPT_PATH}/required_commands.txt"
   exit 1
@@ -4565,6 +4918,7 @@ API_PROVIDER=""
 # STATUS VARIABLE
 RUN_MODE="N/A"
 WARN_STATUS="OK"
+PROGRESS_SPIN_COUNT=0
 SCRIPTING=false
 
 RETVAL=0
@@ -4599,6 +4953,7 @@ while [ "${ARGNUM}" -gt 0 ]; do
     exit ${RETVAL}
     ;;
   -t | --test)
+  msg "Running in test mode" --msg-type info
     exit 0
     ;;
   -u | --update | update)
