@@ -3,7 +3,7 @@
 umask 077
 # ==================================================
 _APP_SPECIFIC_NAME="Maxipi"
-_APP_VERSION="1.1.0"
+_APP_VERSION="1.1.1"
 _APP_STATUS="alpha"
 _APP_INFO="${_APP_SPECIFIC_NAME} is a bash script used for executing API from various providers
 such as linode, Digitalocean, Microsoft Azure, CloudFlare, Directadmin and etc"
@@ -36,7 +36,7 @@ script_update() {
 
   caller="${SCRIPT_NAME}->${FUNCNAME[0]}"
 
-  echo "[${caller}]: Updating ${SCRIPT_NAME} to latest version ..."
+  msg "Updating ${SCRIPT_NAME} to latest version ..."
   navigate_to "${SCRIPT_INSTALL_PATH}"
   echo ""
   echo "START git update information:"
@@ -49,7 +49,7 @@ script_update() {
   navigate_to "PREVIOUS"
   echo ""
 
-  echo "[${caller}]: Updating ${SCRIPT_NAME} configuration file ..."
+  msg "Updating ${SCRIPT_NAME} configuration file ..."
 
   # This will add a new config variable into the config file if it does not exist
   # It will not disturb variable that already has value. So you do not need to reconfigure the script
@@ -72,7 +72,7 @@ script_update() {
   grep -E '^[A-Za-z0-9_].+=.+$' "${SCRIPT_INSTALL_PATH}/${SCRIPT_NAME}.conf" | sort >"${SCRIPT_INSTALL_PATH}/${SCRIPT_NAME}.conf_tmp"
   mv "${SCRIPT_INSTALL_PATH}/${SCRIPT_NAME}.conf_tmp" "${SCRIPT_INSTALL_PATH}/${SCRIPT_NAME}.conf"
 
-  echo "[${caller}]: Running ${SCRIPT_NAME} -V ..."
+  msg "Running ${SCRIPT_NAME} -V ..."
   chmod +x "${SCRIPT_INSTALL_PATH}/${SCRIPT_NAME}"
   ${SCRIPT_NAME} -V
   status_handler check --code $?
@@ -83,7 +83,7 @@ script_update() {
 check_update() {
   local caller temp_file
   caller="${SCRIPT_NAME}->${FUNCNAME[0]}"
-  echo "[${caller}]: Checking ${SCRIPT_NAME} for update..."
+  msg "Checking ${SCRIPT_NAME} for update..."
   temp_file="${TEMP_PATH}/${SCRIPT_NAME}"
   # The github raw hosting will not be updated immediately after I push the update to github. Need to wait about 5 minutes
   curl -H 'Cache-Control: no-cache' -so "${temp_file}" "https://raw.githubusercontent.com/sofibox/${SCRIPT_NAME}_public/main/${SCRIPT_NAME}"
@@ -95,13 +95,13 @@ check_update() {
   echo "Online version is: v${available_version}"
   echo ""
   if [[ "ok" == "$(echo | awk "(${available_version} > ${this_version}) { print \"ok\"; }")" ]]; then
-    echo "[${caller}]: A new version of ${SCRIPT_NAME} is available."
+    msg "A new version of ${SCRIPT_NAME} is available."
     _confirm "[${caller}->input]: Do you want to update ${SCRIPT_NAME} to version ${available_version}?" "y"
     script_update
   elif [[ "ok" == "$(echo | awk "(${available_version} == ${this_version}) { print \"ok\"; }")" ]]; then
-    echo "[${caller}]: You are using the latest version of ${SCRIPT_NAME}."
+    msg "You are using the latest version of ${SCRIPT_NAME}."
   else
-    echo "[${caller}]: You are using a newer version of ${SCRIPT_NAME} than the latest available."
+    msg "You are using a newer version of ${SCRIPT_NAME} than the latest available."
   fi
 
   rm -f "${temp_file}"
@@ -320,7 +320,7 @@ msg() {
       start_spin=true
       shift
       ;;
-    --spin-loop | --start-spin-loop | --start-spinning-loop | --start-spin-until)
+    --spin-loop | --start-spin-loop | --start-spinning-loop | --start-spin-until | --start-spin-duration)
       start_spin_loop="$2"
       shift 2
       ;;
@@ -386,7 +386,7 @@ msg() {
       break
       ;;
     -*)
-      echo "[${caller}]: Error, unknown option: $1"
+      msg "Error, unknown option: $1"
       exit 1
       ;;
     *)
@@ -421,6 +421,8 @@ msg() {
 
   # info = blue, warn = yellow, error = red, success = green, debug = magenta
   if [[ "${msg_info}" == "true" || "${msg_type}" == "info" ]]; then
+    msg="$(tput setaf 6)${msg}$(tput sgr0)"
+  elif [[ "${msg_warn}" == "true" || "${msg_type}" == "notice" ]]; then
     msg="$(tput setaf 6)${msg}$(tput sgr0)"
   elif [[ "${msg_warn}" == "true" || "${msg_type}" == "warning" ]]; then
     msg="$(tput setaf 3)${msg}$(tput sgr0)"
@@ -459,7 +461,6 @@ msg() {
   fi
 
 }
-
 
 end() {
   tput sgr0
@@ -702,127 +703,6 @@ navigate_to() {
 
 }
 
-# This will install required components for the current OS
-# It will not do anything if the required components exist
-# Syntax:
-# required_package htop vim
-required_packages() {
-
-  local required_cmds="$*" detect_by missing_count install_success install_failed retval
-
-  ((missing_count = install_success = install_failed = 0))
-
-  # Loop through the received arguments. Do not quote the array, we want split elements:
-  for required_cmd in ${required_cmds[*]}; do
-
-    # Using command to obtain installation status
-    command -v "${required_cmd}" >/dev/null
-    cmd_status="$?"
-
-    [[ "${cmd_status}" -eq 1 ]] && detect_by="cmd_status"
-
-    if [[ "${cmd_status}" -eq 1 ]]; then
-      ((missing_count++))
-      echo ""
-      echo "[${SCRIPT_NAME}]: Warning, missing ${required_cmd} component detected by ${detect_by}"
-      # This prevents error if we never run apt-get update when the apt cache is expired
-      # When the first missing package is triggered, then we display warning message,
-      # and for this first time, we trigger update command to refresh the expired apt cache
-      if [ "${missing_count}" -eq 1 ]; then
-        echo ""
-        echo "[${SCRIPT_NAME}]: Running apt-get update for the first time ..."
-        apt-get -qq -y update
-        echo ""
-      fi
-      echo "[${SCRIPT_NAME}]: Installing the $(to_ordinal "${missing_count}") missing component: ${required_cmd} ..."
-      echo ""
-
-      if [ "${required_cmd}" == "linode-cli" ]; then
-        # local linode_cli_expect_string
-        # Install required packages to enable linode-cli command
-        apt-get -y install python3-pip
-        pip3 install linode-cli --upgrade
-
-        if [ ! -s /root/.config/linode-cli ]; then
-          echo "[${SCRIPT_NAME}]: Writing a new API config file at /root/.config/linode-cli ..."
-          mkdir -p /root/.config
-          touch /root/.config/linode-cli
-          {
-            echo "[DEFAULT]"
-            echo "default-user = ${LINODE_API_USERNAME}"
-            echo "[${LINODE_API_USERNAME}]"
-            echo "token = ${LINODE_API_KEY}"
-          } >/root/.config/linode-cli
-
-          # Another method of linode-cli config setup which is by using expect command
-          # echo "[${SCRIPT_NAME}]: Configuring linode-cli using expect ..."
-          # if ! command -v expect &>/dev/null; then
-          #  apt-get -y install expect
-          # fi
-          # linode_cli_expect_string=$(expect -c "
-          #                    set timeout 3
-          #                    spawn linode-cli
-          #                    expect \"Personal Access Token:\"
-          #                    send \"${LINODE_API_KEY}\r\"
-          #                    expect \"Default Region (Optional):\"
-          #                    send \"\r\"
-          #                    expect \"Default Type of Linode (Optional):\"
-          #                    send \"\r\"
-          #                    expect \"Default Image (Optional):\"
-          #                    send \"\r\"
-          #                    expect eof
-          #                    ")
-          # echo "Expect command summary: "
-          # echo "${linode_cli_expect_string}"
-        fi
-
-        # linode-cli --version
-      elif [ "${required_cmd}" == "mail" ]; then
-        apt-get -y install mailutils
-        retval=$?
-      elif [ "${required_cmd}" == "ipcalc" ]; then
-        echo "[${SCRIPT_NAME}]: Installing required packages to build ipcalc"
-        sudo apt-get -y install git gcc meson
-        echo "[${SCRIPT_NAME}]: Removing existing ipcalc ..."
-        apt-get -y remove ipcalc
-        rm -rf "/usr/local/bin/ipcalc"
-        rm -rf "/opt/ipcalc"
-        echo ""
-        mkdir -p /opt/ipcalc
-        echo "[${SCRIPT_NAME}]: Installing ipcalc from source https://github.com/sofibox/ipcalc.git ..."
-        git clone https://github.com/sofibox/ipcalc.git "/opt/ipcalc"
-        navigate_to "/opt/ipcalc"
-        meson setup build --buildtype=release
-        ninja -C build
-        echo ""
-        ln -s /opt/ipcalc/build/ipcalc /usr/local/bin
-        ipcalc --version
-        retval=$?
-      elif [ "${required_cmd}" == "packagecommand3" ]; then
-        # Do another type of installation method for this package command name example install from source
-        :
-      else
-        # Do apt installation
-        apt-get -y install "${required_cmd}"
-        retval=$?
-      fi
-
-      if [[ "${retval}" -eq 0 ]]; then
-        ((install_success++))
-      else
-        ((install_failed++))
-      fi
-    fi
-  done
-  if [ "${install_failed}" -gt 0 ]; then
-    echo ""
-    echo "Total missing component: ${missing_count}"
-    echo "Total success installed: ${install_success}"
-    echo "Total failed installed: ${install_failed}"
-    echo ""
-  fi
-}
-
 # Alias of error_handler
 status_code() {
   status_handler "$@"
@@ -847,7 +727,7 @@ status_handler() {
   caller="${SCRIPT_NAME}->${FUNCNAME[0]}"
 
   if [ ${argnum} -eq 0 ]; then
-    echo "[${caller}]: Error, no argument is supplied. Use [ ${SCRIPT_NAME} --create-var --help ] to see the valid options"
+    msg "Error, no argument is supplied. Use [ ${SCRIPT_NAME} --create-var --help ] to see the valid options"  --msg-type=error --caller="${caller}"
     exit 1
   fi
   short_opts="c:,d:"
@@ -855,7 +735,7 @@ status_handler() {
   options=$(getopt -o "${short_opts}" --long "${long_opts}" -n "[${caller}]" -- "$@")
   retval=$?
   if [ "${retval}" != 0 ]; then
-    echo "[${caller}]: Error, invalid options. Terminating..."
+    msg "Error, invalid options. Terminating..." --msg-type=error --caller="${caller}"
     _exit 1
   fi
 
@@ -932,9 +812,9 @@ status_handler() {
       if [ "${code}" -eq 0 ]; then
         if [[ "${print_success}" == true && "${scripting}" == false ]]; then
           if [ -n "${success_msg}" ]; then
-            echo "[${caller}->status]: Success, ${success_msg}"
+            msg "Success, ${success_msg}" --msg-type=success --caller="${caller}->status"
           else
-            echo "[${caller}->status]: [ Success ]"
+            msg "[ Success ]" --msg-type=success --caller="${caller}->status"
           fi
         fi
         [[ "${print_success}" == true && "${scripting}" == true ]] && echo "success"
@@ -945,9 +825,9 @@ status_handler() {
       else
         if [[ ${scripting} == "false" ]]; then
           if [ -n "${error_msg}" ]; then
-            echo "[${caller}->status]: Error(${code}), ${error_msg}"
+            msg "Error(${code}), ${error_msg}"  --msg-type=error --caller="${caller}->status"
           else
-            echo "[${caller}->status]: [ Error(${code}) ]"
+            msg "[ Error(${code}) ]" --msg-type=error --caller="${caller}->status"
           fi
         else
           echo "error"
@@ -961,9 +841,9 @@ status_handler() {
       if [ "${curl_code}" -eq 0 ]; then
         if [[ "${print_curl_success}" == true && "${scripting}" == false ]]; then
           if [ -n "${success_msg}" ]; then
-            echo "[${caller}->curl]: Success, ${success_msg}"
+            msg "Success, ${success_msg}" --msg-type=success --caller="${caller}->curl"
           else
-            echo "[${caller}->curl]: [ Success ]"
+            msg "[ Success ]" --msg-type=success --caller="${caller}->curl"
           fi
         fi
 
@@ -975,9 +855,9 @@ status_handler() {
       else
         if [[ ${scripting} == false ]]; then
           if [ -n "${error_msg}" ]; then
-            echo "[${caller}->curl]: Error(${curl_code}), ${error_msg}"
+            msg "Error(${curl_code}), ${error_msg}" --msg-type=error --caller="${caller}->curl"
           else
-            echo "[${caller}->curl]: [ Error(${curl_code}) ]"
+            msg "[ Error(${curl_code}) ]" --msg-type=error --caller="${caller}->curl"
           fi
         else
           echo "error"
@@ -996,9 +876,9 @@ status_handler() {
             jq . "${RESPONSE_FILE}"
             echo ""
             if [ -n "${success_msg}" ]; then
-              echo "[${caller}->http]: Success, ${success_msg}"
+              msg "Success, ${success_msg}" --msg-type=success --caller="${caller}->http"
             else
-              echo "[${caller}->http]: [ Success ]"
+              msg "[ Success ]" --msg-type=success --caller="${caller}->http"
             fi
           fi
 
@@ -1009,9 +889,9 @@ status_handler() {
         else
           if [[ ${scripting} == false ]]; then
             if [ -n "${error_msg}" ]; then
-              echo "[${caller}->http]: Error(${http_code}), ${error_msg}"
+              msg "Error(${http_code}), ${error_msg}" --msg-type=error --caller="${caller}->http"
             else
-              echo "[${caller}->http]: [ Error(${http_code}) ]"
+              msg "[ Error(${http_code}) ]" --msg-type=error --caller="${caller}->http"
             fi
             echo "Response details:"
             jq . "${RESPONSE_FILE}"
@@ -1031,9 +911,9 @@ status_handler() {
             jq . "${RESPONSE_FILE}"
             echo ""
             if [ -n "${success_msg}" ]; then
-              echo "[${caller}->http]: Success, ${success_msg}"
+              msg "Success, ${success_msg}" --msg-type=success --caller="${caller}->http"
             else
-              echo "[${caller}->http]: [ Success ]"
+              msg "[ Success ]" --msg-type=success --caller="${caller}->http"
             fi
           fi
 
@@ -1044,9 +924,9 @@ status_handler() {
         else
           if [[ ${scripting} == false ]]; then
             if [ -n "${error_msg}" ]; then
-              echo "[${caller}->http]: Error(${http_code}), ${error_msg}"
+              msg "Error(${http_code}), ${error_msg}" --msg-type=error --caller="${caller}->http"
             else
-              echo "[${caller}->http]: [ Error(${http_code}) ]"
+              msg "[ Error(${http_code}) ]"  --msg-type=error --caller="${caller}->http"
             fi
             echo "Response details:"
             jq . "${RESPONSE_FILE}"
@@ -1067,7 +947,7 @@ status_handler() {
   then
     :
   else
-    echo "[${caller}]: Error, invalid action for status_code function"
+    msg "Error, invalid action for status_code function" --msg-type=error --caller="${caller}"
     _exit 1
   fi
 
@@ -1365,7 +1245,7 @@ convert_boolean_alias() {
     echo "false"
     _return 0
   else
-    echo "[${caller}]: Error, invalid value given for option ${option}. Use --help to see the valid options"
+    msg "Error, invalid value given for option ${option}. Use --help to see the valid options"
     _exit 1
   fi
 }
@@ -1377,7 +1257,8 @@ linode_api() {
   # Use token from linode-cli config if exist
 
   if [ -s "/root/.config/linode-cli" ]; then
-    LINODE_API_USERNAME=$(awk '/^default-user/{ print $NF }' /root/.config/linode-cli)
+    # Might be useful in the future
+    # LINODE_API_USERNAME=$(awk '/^default-user/{ print $NF }' /root/.config/linode-cli)
     LINODE_API_KEY=$(awk '/^token/{ print $NF }' /root/.config/linode-cli)
   fi
 
@@ -1409,7 +1290,7 @@ linode_api() {
   retval=$?
 
   if [ ${retval} != 0 ]; then
-    echo "[${caller}]: Error, invalid option"
+    msg "Error, invalid option"
     _exit 1
   fi
 
@@ -1835,7 +1716,7 @@ linode_api() {
       ;;
     -*)
       opt="$1"
-      echo "[${caller}]: Error, invalid option ${opt}. Use --help to see the valid options"
+      msg "Error, invalid option ${opt}. Use --help to see the valid options" --caller="${caller}" --msg-type=error
       _exit 1
       ;;
     *)
@@ -1863,7 +1744,7 @@ linode_api() {
     if [ "${for}" == "linode" ]; then
       linode_label="$2"
       if [ -z "${linode_label}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode_label value is found"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode_label value is found" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -1875,12 +1756,12 @@ linode_api() {
 
       while :; do
         if [[ "${linode_status}" == "${wait_until_linode_status}" ]]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, the status of linode --for-linode-label ${linode_label} is now ${linode_status}"
+          [[ ${scripting} == "false" ]] && msg "Success, the status of linode --for-linode-label ${linode_label} is now ${linode_status}" --caller="${caller}" --msg-type=success --stop-spin-newline
           [[ ${scripting} == "true" ]] && echo "success"
           _exit 0
           # break
         else
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the status of linode --for-linode-label ${linode_label} is ${linode_status}. Waiting for ${wait_until_linode_status} status ... ${wait_total}/${max_retries}"
+          [[ ${scripting} == "false" ]] && msg "Notice, the status of linode --for-linode-label ${linode_label} is ${linode_status}. Waiting for ${wait_until_linode_status} status ... ${wait_total}/${max_retries}" --caller="${caller}" --msg-type=notice --start-spin
         fi
 
         sleep 1
@@ -1890,9 +1771,10 @@ linode_api() {
         ((wait_total++))
 
         if [ "${wait_total}" -eq ${max_retries} ]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, the status of linode --where-linode-label-is ${linode_label} has not changed into ${wait_until_linode_status} status after ${max_retries} call(s)"
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: This is the maximum waiting time set in --max-wait-time option"
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish"
+          [[ ${scripting} == "false" ]] && msg "Error, the status of linode --where-linode-label-is ${linode_label} has not changed into ${wait_until_linode_status} status after ${max_retries} call(s)" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "This is the maximum waiting time set in --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You can increase the maximum waiting time by using --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish" --caller="${caller}" --msg-type=error
           [[ ${scripting} == "true" ]] && echo "error"
           _exit 1
         fi
@@ -1905,13 +1787,13 @@ linode_api() {
       disk_label="$4"
 
       if [ -z "${linode_id}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode_id value is found"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode_id value is found" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
       if [ -z "${disk_id}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no disk_id value is found"
+        [[ ${scripting} == "false" ]] && msg "Error, no disk_id value is found" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -1924,12 +1806,12 @@ linode_api() {
       while :; do
 
         if [[ "${disk_status}" == "${wait_until_disk_status}" ]]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, the disk status --for-disk-label ${disk_label} is now ${disk_status}"
+          [[ ${scripting} == "false" ]] && msg "Success, the disk status --for-disk-label ${disk_label} is now ${disk_status}" --caller="${caller}" --msg-type=success --stop-spin-newline
           [[ ${scripting} == "true" ]] && echo "success"
           _exit 0
           # break
         else
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the status of linode --for-disk-label ${disk_label} is ${disk_status}. Waiting for ${wait_until_disk_status} status ... ${wait_total}/${max_retries}"
+          [[ ${scripting} == "false" ]] && msg "Notice, the status of linode --for-disk-label ${disk_label} is ${disk_status}. Waiting for ${wait_until_disk_status} status ... ${wait_total}/${max_retries}" --caller="${caller}" --msg-type=notice --start-spin
         fi
         sleep 1
         disk_status=$(curl -s -H "Content-Type: application/json" -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/disks/${disk_id}" | jq -r ".status")
@@ -1938,9 +1820,10 @@ linode_api() {
         ((wait_total++))
 
         if [ "${wait_total}" -eq ${max_retries} ]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, the status of linode --for-disk-label ${disk_label} has not changed into ${wait_until_disk_status} status after ${max_retries} call(s)"
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: This is the maximum waiting time set in --max-wait-time option"
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish"
+          [[ ${scripting} == "false" ]] && msg "Error, the status of linode --for-disk-label ${disk_label} has not changed into ${wait_until_disk_status} status after ${max_retries} call(s)" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "This is the maximum waiting time set in --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You can increase the maximum waiting time by using --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish" --caller="${caller}" --msg-type=error
           [[ ${scripting} == "true" ]] && echo "error"
           _exit 1
         fi
@@ -1961,7 +1844,7 @@ linode_api() {
     if [ "${for}" == "linode" ]; then
       linode_label="$2"
       if [ -z "${linode_label}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode_label value is found"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode_label value is found" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -1971,7 +1854,7 @@ linode_api() {
       wait_total=0
       while :; do
 
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Checking linode busy status --where-linode-label-is ${linode_label} ... ${wait_total}/${max_retries}"
+        [[ ${scripting} == "false" ]] && msg "Checking linode busy status --where-linode-label-is ${linode_label} ... ${wait_total}/${max_retries}" --caller="${caller}" --msg-type=info
         sleep 1
         linode_status=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .status")
         status_handler check --curl-status "$?"
@@ -1981,15 +1864,19 @@ linode_api() {
 
         # If the busy status is found, we check again until no linode busy status
         if [[ -n "${busy_status}" ]]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, linode is busy with the following status: ${busy_status}. Waiting for non-busy linode status ..."
+          [[ ${scripting} == "false" ]] && msg "Notice, linode is busy with the following status: ${busy_status}. Waiting for non-busy linode status ..." --caller="${caller}" --msg-type=notice --start-spin
         else
+          [[ ${scripting} == "false" ]] && msg "Success, linode is not busy anymore" --caller="${caller}" --msg-type=success --stop-spin-newline
+          [[ ${scripting} == "true" ]] && echo "success"
           break
         fi
         ((wait_total++))
 
         if [ "${wait_total}" -eq ${max_retries} ]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, linode ${linode_label} is still busy"
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: This is the maximum waiting time set in --max-wait-time option"
+          [[ ${scripting} == "false" ]] && msg "Error, linode ${linode_label} is still busy" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "This is the maximum waiting time set in --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You can increase the maximum waiting time by using --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish" --caller="${caller}" --msg-type=error
           [[ ${scripting} == "true" ]] && echo "error"
           _exit 1
         fi
@@ -2000,7 +1887,7 @@ linode_api() {
     elif [ "${for}" == "disk" ]; then
       linode_label="$2"
       if [ -z "${linode_label}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode_label value is found"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode_label value is found" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -2014,7 +1901,7 @@ linode_api() {
         linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .id")
         status_handler check --curl-status "$?"
 
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Checking linode disk busy status --where-linode-label-is ${linode_label} ... ${wait_total}/${max_retries}"
+        [[ ${scripting} == "false" ]] && msg "Checking linode disk busy status --where-linode-label-is ${linode_label} ... ${wait_total}/${max_retries}" --caller="${caller}"
         sleep 1
         # This will return all the disk status
         disk_status=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/disks" | jq -r ".data[] | .status")
@@ -2025,16 +1912,20 @@ linode_api() {
 
         # If the busy status is found, we check again until no disk busy status is found
         if [[ -n "${busy_status}" ]]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, linode disk is busy with the following status: ${busy_status}. Waiting for non-busy disk status ..."
+          [[ ${scripting} == "false" ]] && msg "Notice, linode disk is busy with the following status: ${busy_status}. Waiting for non-busy disk status ..." --caller="${caller}" --msg-type=warning --msg-type=notice --start-spin
         else
+          [[ ${scripting} == "false" ]] && msg "Success, linode disk is not busy anymore" --caller="${caller}" --msg-type=success --stop-spin-newline
+          [[ ${scripting} == "true" ]] && echo "success"
           break
         fi
 
         ((wait_total++))
 
         if [ "${wait_total}" -eq ${max_retries} ]; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, linode disk is still busy after timeout"
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: This is the maximum waiting time set in --max-wait-time option"
+          [[ ${scripting} == "false" ]] && msg "Error, linode disk is still busy after timeout" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "This is the maximum waiting time set in --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You can increase the maximum waiting time by using --max-wait-time option" --caller="${caller}" --msg-type=error
+          [[ ${scripting} == "false" ]] && msg "You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish" --caller="${caller}" --msg-type=error
           [[ ${scripting} == "true" ]] && echo "error"
           _exit 1
         fi
@@ -2052,7 +1943,7 @@ linode_api() {
 
     # We just want to make sure again that this for_linode_variable exist
     if [ -z "${linode_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2060,7 +1951,7 @@ linode_api() {
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Shutting down linode ${linode_label} ( ${linode_id} ) ..."
+    [[ ${scripting} == "false" ]] && msg "Shutting down linode ${linode_label} ( ${linode_id} ) ..." --caller="${caller}" --msg-type=notice
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
       -X POST --url "${api_url}/linode/instances/${linode_id}/shutdown")
@@ -2073,11 +1964,11 @@ linode_api() {
     while :; do
 
       if [[ "${linode_status}" == "offline" ]]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, the status of linode --for-linode-label ${linode_label} is offline"
+        [[ ${scripting} == "false" ]] && msg "Success, the status of linode --for-linode-label ${linode_label} is offline" --caller="${caller}" --msg-type=success --stop-spin-newline
         [[ ${scripting} == "true" ]] && echo "success"
         break
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the status of linode --for-linode-label ${linode_label} is ${linode_status}. Waiting for offline status ... ${wait_total}/${max_retries}"
+        [[ ${scripting} == "false" ]] && msg "Notice, the status of linode --for-linode-label ${linode_label} is ${linode_status}. Waiting for offline status ... ${wait_total}/${max_retries}" --caller="${caller}" --msg-type=notice --start-spin
       fi
       sleep 1
       linode_status=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .status")
@@ -2085,9 +1976,8 @@ linode_api() {
 
       ((wait_total++))
       if [ "${wait_total}" -eq ${max_retries} ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, the status of linode for --for-linode-label ${linode_label} has not changed into offline status after ${max_retries} call(s)"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: This is the maximum waiting time set in --max-wait-time option"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish"
+        [[ ${scripting} == "false" ]] && msg "Error, the status of linode for --for-linode-label ${linode_label} has not changed into offline status after ${max_retries} call(s)" --caller="${caller}" --msg-type=error
+        [[ ${scripting} == "false" ]] && msg "You may want to visit the linode lish console here to inspect this issue in details: https://cloud.linode.com/linodes/${linode_id}/lish/glish" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -2098,19 +1988,19 @@ linode_api() {
   # If --config-file option is provided we will use it to get variable LINODE_API_KEY
   if [ -n "${config_file}" ]; then
     if [ -f "${config_file}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, using config file ${config_file} to get variable LINODE_API_KEY"
+      [[ ${scripting} == "false" ]] && msg "Notice, using config file ${config_file} to get variable LINODE_API_KEY" --caller="${caller}" --msg-type=notice
       local retval
       source "${config_file}"
       retval=$?
       if [ "${retval}" -ne 0 ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, there was something wrong when trying to source the config file ${config_file}"
+        [[ ${scripting} == "false" ]] && msg "Error, there was something wrong when trying to source the config file ${config_file}" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, the config file ${config_file} has been sourced"
+        [[ ${scripting} == "false" ]] && msg "Success, the config file ${config_file} has been sourced" --caller="${caller}" --msg-type=success
       fi
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --config-file option required a valid file path (eg: --config-file /path/to/config/file)"
+      [[ ${scripting} == "false" ]] && msg "Error, --config-file option required a valid file path (eg: --config-file /path/to/config/file)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2121,14 +2011,14 @@ linode_api() {
   if [ -z "${LINODE_API_KEY}" ]; then
     [[ ${scripting} == "false" ]] && echo "[${caller}->input]: Warning, the variable LINODE_API_KEY for linode token has no value! Enter a new linode API token: "
     read -r LINODE_API_KEY
-    echo "[${caller}]: Given token is: ${LINODE_API_KEY}"
+    msg "Given token is: ${LINODE_API_KEY}"
     _confirm "[${caller}->input]: Do you want to write the token into config file at ${CONFIG_FILE}?"
     sed -i "s|^LINODE_API_KEY\=.*|LINODE_API_KEY=\"${LINODE_API_KEY}\"|" "${CONFIG_FILE}"
     status_handler check --code "$?" --print-success
-    echo "[${caller}]: Updating the new linode API header token ..."
+    msg "Updating the new linode API header token ..." --caller="${caller}" --msg-type=notice
     api_auth_string="Authorization: Bearer ${LINODE_API_KEY}"
     echo ""
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Testing the linode account using the new token ... "
+    [[ ${scripting} == "false" ]] && msg "Testing the linode account using the new token ... " --caller="${caller}" --msg-type=notice
     test_account
     _exit 0
   fi
@@ -2176,24 +2066,24 @@ linode_api() {
     # We want to make sure that the value for_linode_label is not empty
     if [ -z "${for_linode_label}" ]; then
       # For human text
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.domain.com)" --caller="${caller}" --msg-type=error
       # For scripting text
       [[ ${scripting} == "true" ]] && echo "error"
       # Exit for human and scripting
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID --where-linode-label-is ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID --where-linode-label-is ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -n "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: The linode ID --for-linode-label ${for_linode_label} is ${linode_id}"
+      [[ ${scripting} == "false" ]] && msg "The linode ID --for-linode-label ${for_linode_label} is ${linode_id}" --caller="${caller}" --msg-type=success
       [[ ${scripting} == "true" ]] && echo "${linode_id}"
       _exit 0
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --where-linode-label-is ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --where-linode-label-is ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2219,12 +2109,12 @@ linode_api() {
     fi
 
     if [ -z "${for_linode_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.domain.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting linode status --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting linode status --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_status=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .status")
     status_handler check --curl-status "$?"
@@ -2235,12 +2125,12 @@ linode_api() {
       wait_status_for linode "${for_linode_label}"
     else
       if [ -n "${linode_status}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: The linode status --for-linode-label ${for_linode_label} is ${linode_status} ..."
+        [[ ${scripting} == "false" ]] && msg "The linode status --for-linode-label ${for_linode_label} is ${linode_status} ..." --caller="${caller}" --msg-type=success
         [[ ${scripting} == "true" ]] && echo "${linode_status}"
         _exit 0
       else
         # if linode status is other than above or does not exist, it will show this
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the linode status --for-linode-label ${for_linode_label} is empty!"
+        [[ ${scripting} == "false" ]] && msg "Error, the linode status --for-linode-label ${for_linode_label} is empty!" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -2280,7 +2170,7 @@ linode_api() {
     # Make sure linode label is not empty
     if [ -z "${for_linode_label}" ]; then
       # For human text
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.test.domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.test.domain.com)" --caller="${caller}" --msg-type=error
       # For scripting text
       [[ ${scripting} == "true" ]] && echo "error"
       # Exit for human and scripting
@@ -2288,26 +2178,26 @@ linode_api() {
     fi
 
     if [ -n "${for_linode_config_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the option --for-linode-config-label option is not required for this action"
+      [[ ${scripting} == "false" ]] && msg "Error, the option --for-linode-config-label option is not required for this action" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting linode ID --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting linode ID --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --for-linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     # We check linode status whether it is busy. Note that a linode label (for_linode_label) must be exist first before calling this:
     if [ "${check_for_busy_status}" == true ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to check for busy status first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to check for busy status first" --caller="${caller}" --msg-type=notice
       # Syntax: check_busy_status_for disk <linode_label>
       #         check_busy-status_for linode <linode_label>
       check_busy_status_for linode "${for_linode_label}"
@@ -2352,7 +2242,7 @@ linode_api() {
       fi
 
       if [[ -z "${disk_id}" || -z "${volume_id}" ]]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the ${label_type} label name ${label_name} does not exist. Please, make sure that the ${label_type} label name ${label_type} was created first in linode"
+        [[ ${scripting} == "false" ]] && msg "Error, the ${label_type} label name ${label_name} does not exist. Please, make sure that the ${label_type} label name ${label_type} was created first in linode" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -2365,27 +2255,27 @@ linode_api() {
       )"
 
       [[ ${scripting} == "false" ]] && echo ""
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Volume and disk information"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: =========================="
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: disk_volume_letter: ${disk_volume_letter}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: label_disk_vol: ${label_disk_vol}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: label_type: ${label_type}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: label_name: ${label_name}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: disk_id: ${disk_id}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: volume_id: ${volume_id}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: =========================="
+      [[ ${scripting} == "false" ]] && msg "Volume and disk information"
+      [[ ${scripting} == "false" ]] && msg "=========================="
+      [[ ${scripting} == "false" ]] && msg "disk_volume_letter: ${disk_volume_letter}"
+      [[ ${scripting} == "false" ]] && msg "label_disk_vol: ${label_disk_vol}"
+      [[ ${scripting} == "false" ]] && msg "label_type: ${label_type}"
+      [[ ${scripting} == "false" ]] && msg "label_name: ${label_name}"
+      [[ ${scripting} == "false" ]] && msg "disk_id: ${disk_id}"
+      [[ ${scripting} == "false" ]] && msg "volume_id: ${volume_id}"
+      [[ ${scripting} == "false" ]] && msg "=========================="
       [[ ${scripting} == "false" ]] && echo ""
 
     done
 
     if [ "${disk_volume_provided_count}" -eq 0 ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, Linode will boot into rescue mode without mounting any disks or volumes"
+      [[ ${scripting} == "false" ]] && msg "Notice, Linode will boot into rescue mode without mounting any disks or volumes" --caller="${caller}" --msg-type=notice
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, Linode will boot into rescue mode and mount the following options: "
-      [[ ${scripting} == "false" ]] && echo "${json_query_data}"
+      [[ ${scripting} == "false" ]] && msg "Notice, Linode will boot into rescue mode and mount the following options: " --caller="${caller}" --msg-type=notice
+      [[ ${scripting} == "false" ]] && msg "${json_query_data}" --caller="${caller}" --msg-type=notice
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Putting linode --where-linode-label-is ${for_linode_label} into rescue mode ..."
+    [[ ${scripting} == "false" ]] && msg "Putting linode --where-linode-label-is ${for_linode_label} into rescue mode ..." --caller="${caller}" --msg-type=notice
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
       -X POST --data "${json_query_data}" --url "${api_url}/linode/instances/${linode_id}/rescue")
@@ -2427,27 +2317,27 @@ linode_api() {
     fi
 
     if [ -z "${for_linode_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --for-linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode config ID --for-linode-config-label ${for_linode_config_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode config ID --for-linode-config-label ${for_linode_config_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_config_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/configs" | jq -r ".data[] | select(.label == \"${for_linode_config_label}\") | .id")
 
     if [ "${check_for_busy_status}" == true ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to check for busy status first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to check for busy status first" --caller="${caller}" --msg-type=notice
       # Syntax: check_busy_status_for disk <linode_label>
       #         check_busy-status_for linode <linode_label>
       check_busy_status_for linode "${for_linode_label}"
@@ -2455,16 +2345,16 @@ linode_api() {
     fi
 
     if [[ "${shutdown_linode_first}" == true ]]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to be shutdown first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to be shutdown first" --caller="${caller}" --msg-type=notice
       # Syntax: shutdown_linode_first <linode label>
       shutdown_linode_first "${for_linode_label}"
     fi
 
     # If we don't find linode_config_id, it will boot from the last successful profile
     if [ -n "${linode_config_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Booting linode ${for_linode_label} ( ${linode_id} ) with the option --where-linode-config-label-is ${for_linode_config_label} ..."
+      [[ ${scripting} == "false" ]] && msg "Booting linode ${for_linode_label} ( ${linode_id} ) with the option --where-linode-config-label-is ${for_linode_config_label} ..." --caller="${caller}" --msg-type=notice
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, no linode config ID is found --for-linode-config-label ${for_linode_config_label}. Booting linode using the last successful config profile ..."
+      [[ ${scripting} == "false" ]] && msg "Notice, no linode config ID is found --for-linode-config-label ${for_linode_config_label}. Booting linode using the last successful config profile ..." --caller="${caller}" --msg-type=notice
     fi
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
@@ -2504,27 +2394,27 @@ linode_api() {
     fi
 
     if [ -z "${for_linode_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID  --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID  --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --for-linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode config ID --for-linode-config-label ${for_linode_config_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode config ID --for-linode-config-label ${for_linode_config_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_config_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/configs" | jq -r ".data[] | select(.label == \"${for_linode_config_label}\") | .id")
 
     if [ "${check_for_busy_status}" == true ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to check for busy status first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to check for busy status first" --caller="${caller}" --msg-type=notice
       # Syntax: check_busy_status_for disk <linode_label>
       #         check_busy-status_for linode <linode_label>
       check_busy_status_for linode "${for_linode_label}"
@@ -2533,9 +2423,9 @@ linode_api() {
 
     # If we don't find linode_config_id, it will boot from the last successful profile
     if [ -n "${linode_config_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}->${action}]: Rebooting linode ${for_linode_label} ( ${linode_id} ) with the option --where-linode-config-label-is ${for_linode_config_label} ..."
+      [[ ${scripting} == "false" ]] && echo "[${caller}->${action}]: Rebooting linode ${for_linode_label} ( ${linode_id} ) with the option --where-linode-config-label-is ${for_linode_config_label} ..." --caller="${caller}" --msg-type=notice
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}->${action}]: Notice, no linode config ID is found --for-linode-config-label ${for_linode_config_label}. Rebooting linode using the last successful config profile ..."
+      [[ ${scripting} == "false" ]] && echo "[${caller}->${action}]: Notice, no linode config ID is found --for-linode-config-label ${for_linode_config_label}. Rebooting linode using the last successful config profile ..." --caller="${caller}" --msg-type=notice
     fi
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
@@ -2571,30 +2461,30 @@ linode_api() {
     fi
 
     if [ -z "${for_linode_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --msg-type=error --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID  --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID  --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --for-linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     if [ "${check_for_busy_status}" == true ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to check for busy status first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to check for busy status first" --caller="${caller}" --msg-type=notice
       # Syntax: check_busy_status_for disk <linode_label>
       #         check_busy-status_for linode <linode_label>
       check_busy_status_for linode "${for_linode_label}"
       check_busy_status_for disk "${for_linode_label}"
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Shutting down linode ${for_linode_label} ( ${linode_id} ) ..."
+    [[ ${scripting} == "false" ]] && msg "Shutting down linode ${for_linode_label} ( ${linode_id} ) ..." --caller="${caller}" --msg-type=notice
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
       -X POST --url "${api_url}/linode/instances/${linode_id}/shutdown")
@@ -2638,7 +2528,7 @@ linode_api() {
     json_query_data='{}'
 
     if ! is_valid not-empty-string "${for_linode_label}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --msg-type=error --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2647,7 +2537,7 @@ linode_api() {
 
       json_query_data=$(jq --arg linode_disk_label "${linode_disk_label}" '.label |= $linode_disk_label' <<<"${json_query_data}")
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --linode-disk-label option required a valid value (eg: --linode-disk-label OS_Disk)"
+      [[ ${scripting} == "false" ]] && msg "Error, --linode-disk-label option required a valid value (eg: --linode-disk-label OS_Disk)" --msg-type=error --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2656,7 +2546,7 @@ linode_api() {
 
       json_query_data=$(jq --arg linode_disk_filetype "${linode_disk_filetype}" '.filesystem |= $linode_disk_filetype' <<<"${json_query_data}")
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --linode-disk-filetype option required a valid value (eg: --linode-disk-filetype raw)"
+      [[ ${scripting} == "false" ]] && msg "Error, --linode-disk-filetype option required a valid value (eg: --linode-disk-filetype raw)" --msg-type=error --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2665,21 +2555,21 @@ linode_api() {
       json_query_data=$(jq --argjson linode_disk_size "${linode_disk_size}" '.size |= $linode_disk_size' <<<"${json_query_data}")
     else
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --linode-disk-size option required a valid value (eg: --linode-disk-size 20GB)"
+      [[ ${scripting} == "false" ]] && msg "Error, --linode-disk-size option required a valid value (eg: --linode-disk-size 20GB)" --msg-type=error --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     # We need to shutdown linode first in order to create disk if this option is given. This shutdown process is in loop without passing option --until-linode-status
     if [[ "${shutdown_linode_first}" == true ]]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to be shutdown first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to be shutdown first" --caller="${caller}" --msg-type=notice
       # Syntax: shutdown_linode_first <linode label>
       shutdown_linode_first "${for_linode_label}"
     fi
 
     # Note this check must be performed before calling any APIs and after we passed some required options.
     if [ "${check_for_busy_status}" == true ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to check for busy status first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to check for busy status first" --caller="${caller}" --msg-type=notice
       # Syntax: check_busy_status_for disk <linode_label>
       #         check_busy-status_for linode <linode_label>
 
@@ -2689,12 +2579,12 @@ linode_api() {
 
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID for --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID for --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found for --linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found for --linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2702,26 +2592,25 @@ linode_api() {
     if [[ ${allow_duplicate_entries} == false ]]; then
       local existing_label
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Checking for existing entry of --linode-disk-label ${linode_disk_label} ..."
+      [[ ${scripting} == "false" ]] && msg "Checking for existing entry of --linode-disk-label ${linode_disk_label} ..." --caller="${caller}" --msg-type=notice
 
       existing_label=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/disks?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.label == \"${linode_disk_label}\") | .label" | tail -n 1)
       status_handler check --curl-status "$?"
 
       if [[ "${existing_label}" == "${linode_disk_label}" ]]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, there is already an existing linode disk label --linode-disk-label ${linode_disk_label} in linode. In order to create a duplicate entry, use the option --allow-duplicate-entries"
+        [[ ${scripting} == "false" ]] && msg "Error, there is already an existing linode disk label --linode-disk-label ${linode_disk_label} in linode. In order to create a duplicate entry, use the option --allow-duplicate-entries" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
 
       fi
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the option --allow-duplicate-entries is set. Duplicated disk label is allowed to be created"
+      [[ ${scripting} == "false" ]] && msg "Notice, the option --allow-duplicate-entries is set. Duplicated disk label is allowed to be created" --caller="${caller}" --msg-type=notice
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating a new linode disk with --linode-disk-label ${linode_disk_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Creating a new linode disk with --linode-disk-label ${linode_disk_label} ..." --caller="${caller}" --msg-type=notice
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: json_query_data: "
-
-    [[ ${scripting} == "false" ]] && echo "${json_query_data}"
+    [[ ${scripting} == "false" ]] && msg "json_query_data: " --caller="${caller}" --msg-type=debug
+    [[ ${scripting} == "false" ]] && msg "${json_query_data}" --caller="${caller}" --msg-type=debug
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
       -X POST --data "${json_query_data}" --url "${api_url}/linode/instances/${linode_id}/disks")
@@ -2774,60 +2663,60 @@ linode_api() {
     fi
 
     if ! is_valid not-empty-string "${for_linode_label}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --for-linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     if [[ "${action^^}" == +(DELETE-DISKS|REMOVE-DISKS) ]]; then
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching all linode disks --where-linode-label-is ${for_linode_label} ..."
+      [[ ${scripting} == "false" ]] && msg "Searching all linode disks --where-linode-label-is ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
       disk_ids=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/disks?page_size=${linode_max_page_size}" | jq -r ".data[] | .id")
       status_handler check --curl-status "$?"
 
       if [ -z "${disk_ids}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode disk ID is found --for-linode-label ${for_linode_label}"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode disk ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     else # delete-disk or remove-disk
       if ! is_valid not-empty-string "${for_linode_disk_label}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the action ${action} (without a postfix -s) require a valid value --for-disk-label to search existing disk (eg: --for-disk-label OS_Disk)"
+        [[ ${scripting} == "false" ]] && msg "Error, the action ${action} (without a postfix -s) require a valid value --for-disk-label to search existing disk (eg: --for-disk-label OS_Disk)" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching linode disk(s) --for-linode-label ${for_linode_label} --where-disk-label-is ${for_linode_disk_label} ..."
+      [[ ${scripting} == "false" ]] && msg "Searching linode disk(s) --for-linode-label ${for_linode_label} --where-disk-label-is ${for_linode_disk_label} ..." --caller="${caller}" --msg-type=notice
 
       disk_ids=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/disks?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.label == \"${for_linode_disk_label}\") | .id")
 
       if [ -z "${disk_ids}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode disk is found --for-linode-label ${for_linode_label} --where-disk-label-is ${for_linode_disk_label}"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode disk is found --for-linode-label ${for_linode_label} --where-disk-label-is ${for_linode_disk_label}" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     fi
 
     if [[ "${shutdown_linode_first}" == true ]]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to be shutdown first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to be shutdown first" --caller="${caller}" --msg-type=notice
       # Syntax: shutdown_linode_first <linode label>
       shutdown_linode_first "${for_linode_label}"
     fi
 
     if [ "${check_for_busy_status}" == true ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, linode is set to check for busy status first"
+      [[ ${scripting} == "false" ]] && msg "Notice, linode is set to check for busy status first" --caller="${caller}" --msg-type=notice
       # Syntax: check_busy_status_for disk <linode_label>
       #         check_busy-status_for linode <linode_label>
 
@@ -2838,12 +2727,12 @@ linode_api() {
     # If the option --first-record or --last-record is there, we filter this to only use one record
     if [ "${first_record}" == true ]; then
       disk_ids=$(echo "${disk_ids}" | head -n1)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Disk ID selected (first record): "
+      [[ ${scripting} == "false" ]] && msg "List of Disk ID selected (first record): " --caller="${caller}" --msg-type=notice
     elif [ "${last_record}" == true ]; then
       disk_ids=$(echo "${disk_ids}" | tail -n1)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Disk ID selected (last record): "
+      [[ ${scripting} == "false" ]] && msg "List of Disk ID selected (last record): " --caller="${caller}" --msg-type=notice
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Disk ID(s) selected: "
+      [[ ${scripting} == "false" ]] && msg "List of Disk ID(s) selected: " --caller="${caller}" --msg-type=notice
     fi
 
     disk_ids_count=$(echo "${disk_ids}" | wc -w)
@@ -2866,7 +2755,7 @@ linode_api() {
       disk_name=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/disks?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.id == ${disk_id}) | .label")
       status_handler check --curl-status "$?"
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Deleting linode disk ${disk_name} ( ${disk_id} ) ... ${disk_count} / ${disk_ids_count}"
+      [[ ${scripting} == "false" ]] && msg "Deleting linode disk ${disk_name} ( ${disk_id} ) ... ${disk_count} / ${disk_ids_count}" --caller="${caller}" --msg-type=notice
 
       response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "${api_auth_string}" -X DELETE --url "${api_url}/linode/instances/${linode_id}/disks/${disk_id}")
       status_handler check --curl-status "$?" --http-status "${response_code}" --print-http-success \
@@ -2874,24 +2763,17 @@ linode_api() {
         --success-msg "the disk name ${disk_name} has been set to be deleted"
 
       # Must check deletion process for multiple disk deletion
+      [[ ${scripting} == "false" ]] && msg "Checking disk deletion status for ${disk_name} ( ${disk_id} ) ..." --caller="${caller}" --msg-type=notice
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Checking disk deletion status for ${disk_name} ( ${disk_id} ) ..."
       while :; do
-
+        [[ ${scripting} == "false" ]] && msg "Notice, disk status --for-disk-label ${for_linode_disk_label} is ${disk_status}. Waiting for deleted status ..." --caller="${caller}" --msg-type=notice --start-spin
         disk_status=$(curl -s -H "Content-Type: application/json" -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/disks/${disk_id}" | jq -r ".status")
         status_handler check --curl-status "$?"
 
         if [[ -z "${disk_status}" || "${disk_status}" == null ]]; then
           # If disk_status is empty meaning that it has been deleted!
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, the linode --for-disk-label ${for_linode_disk_label} ( ${disk_id} ) has been deleted!"
+          [[ ${scripting} == "false" ]] && msg "Success, the linode --for-disk-label ${for_linode_disk_label} ( ${disk_id} ) has been deleted!" --caller="${caller}" --msg-type=success --stop-spin-newline
           break
-        elif [[ ${disk_status} == "deleting" || "${disk_status}" == "ready" ]]; then
-          :
-          # List of status that we ignore we put here and we don't print the output
-        else
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, unknown linode disk status --for-disk-label ${for_linode_disk_label}: ${disk_status}"
-          [[ ${scripting} == "true" ]] && echo "error"
-          _exit 1
         fi
       done
     done
@@ -2922,7 +2804,7 @@ linode_api() {
     fi
 
     if ! is_valid not-empty-string "${for_linode_label}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2932,18 +2814,18 @@ linode_api() {
     if is_valid not-empty-string "${linode_config_label}"; then
       json_query_data=$(jq --arg linode_config_label "${linode_config_label}" '.label |= $linode_config_label' <<<"${json_query_data}")
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --config-label ${linode_config_label} is not valid (empty string)"
+      [[ ${scripting} == "false" ]] && msg "Error, the given --config-label ${linode_config_label} is not valid (empty string)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --for-linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -2951,18 +2833,18 @@ linode_api() {
     if [[ ${allow_duplicate_entries} == false ]]; then
       local existing_label
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Checking for existing entry of --config-label ${linode_config_label} ..."
+      [[ ${scripting} == "false" ]] && msg "Checking for existing entry of --config-label ${linode_config_label} ..." --caller="${caller}" --msg-type=notice
 
       existing_label=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/configs?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.label == \"${linode_config_label}\") | .label" | tail -n 1)
 
       if [[ "${existing_label}" == "${linode_config_label}" ]]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, there is already an existing linode config label --config-label ${linode_config_label} in linode. In order to create a duplicate entry, use the option --allow-duplicate-entries"
+        [[ ${scripting} == "false" ]] && msg "Error, there is already an existing linode config label --config-label ${linode_config_label} in linode. In order to create a duplicate entry, use the option --allow-duplicate-entries" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
 
       fi
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the option --allow-duplicate-entries is set. Hence, duplicated config label is allowed to be created"
+      [[ ${scripting} == "false" ]] && msg "Notice, the option --allow-duplicate-entries is set. Hence, duplicated config label is allowed to be created" --caller="${caller}" --msg-type=notice
     fi
 
     if [ -n "${linode_config_kernel}" ]; then
@@ -3033,7 +2915,7 @@ linode_api() {
       fi
 
       if [[ -z "${disk_id}" || -z "${volume_id}" ]]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the ${label_type} label ${label_name} does not exist. Please, make sure that the ${label_type} label ${label_name} was created first in linode"
+        [[ ${scripting} == "false" ]] && msg "Error, the ${label_type} label ${label_name} does not exist. Please, make sure that the ${label_type} label ${label_name} was created first in linode" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3045,29 +2927,29 @@ linode_api() {
       )"
 
       [[ ${scripting} == "false" ]] && echo ""
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Volume and disk information"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: =========================="
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: disk_volume_letter_count: ${disk_volume_provided_count}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: disk_volume_letter: ${disk_volume_letter}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: label_disk_vol: ${label_disk_vol}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: label_type: ${label_type}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: label_name: ${label_name}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: disk_id: ${disk_id}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: volume_id: ${volume_id}"
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: =========================="
+      [[ ${scripting} == "false" ]] && msg "Volume and disk information"
+      [[ ${scripting} == "false" ]] && msg "=========================="
+      [[ ${scripting} == "false" ]] && msg "disk_volume_letter_count: ${disk_volume_provided_count}"
+      [[ ${scripting} == "false" ]] && msg "disk_volume_letter: ${disk_volume_letter}"
+      [[ ${scripting} == "false" ]] && msg "label_disk_vol: ${label_disk_vol}"
+      [[ ${scripting} == "false" ]] && msg "label_type: ${label_type}"
+      [[ ${scripting} == "false" ]] && msg "label_name: ${label_name}"
+      [[ ${scripting} == "false" ]] && msg "disk_id: ${disk_id}"
+      [[ ${scripting} == "false" ]] && msg "volume_id: ${volume_id}"
+      [[ ${scripting} == "false" ]] && msg "=========================="
       [[ ${scripting} == "false" ]] && echo ""
     done
 
     if [ "${disk_volume_provided_count}" -eq 0 ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, device option is blank. Linode config required at least one device to be mounted (eg: --dev-sda disk:OS_Disk)"
+      [[ ${scripting} == "false" ]] && msg "Error, device option is blank. Linode config required at least one device to be mounted (eg: --dev-sda disk:OS_Disk)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, Linode config will be created and mount with the following options: "
-      [[ ${scripting} == "false" ]] && echo "${json_query_data}"
+      [[ ${scripting} == "false" ]] && msg "Notice, Linode config will be created and mount with the following options: " --caller="${caller}" --msg-type=notice
+      [[ ${scripting} == "false" ]] && msg "${json_query_data}" --caller="${caller}" --msg-type=debug
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating a new linode config with --disk-label ${linode_config_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Creating a new linode config with --disk-label ${linode_config_label} ..." --caller="${caller}" --msg-type=notice
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
       -X POST --data "${json_query_data}" --url "${api_url}/linode/instances/${linode_id}/configs")
@@ -3106,48 +2988,48 @@ linode_api() {
     fi
 
     if ! is_valid not-empty-string "${for_linode_label}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option required a valid value (eg: --for-linode-label sun.sofibox.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required linode ID --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required linode ID --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found --for-linode-label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     if [[ "${action^^}" == +(DELETE-CONFIGS|REMOVE-CONFIGS) ]]; then
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching all configs in linode --where-linode-label-is ${for_linode_label} ..."
+      [[ ${scripting} == "false" ]] && msg "Searching all configs in linode --where-linode-label-is ${for_linode_label} ..." --caller="${caller}" --msg-type=notice
 
       config_ids=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/configs?page_size=${linode_max_page_size}" | jq -r ".data[] | .id")
       status_handler check --curl-status "$?"
 
       if [ -z "${config_ids}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode config ID is found --for-linode-label ${for_linode_label}"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode config ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     else # delete-config or remove-config
       if ! is_valid not-empty-string "${for_linode_config_label}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the action ${action} (without a postfix -s) require a valid value --for-config-label to search existing config (eg: --for-config-label OS_Config)"
+        [[ ${scripting} == "false" ]] && msg "Error, the action ${action} (without a postfix -s) require a valid value --for-config-label to search existing config (eg: --for-config-label OS_Config)" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching linode config(s) --for-linode-label ${for_linode_label} --where-config-label-is ${for_linode_config_label} ..."
+      [[ ${scripting} == "false" ]] && msg "Searching linode config(s) --for-linode-label ${for_linode_label} --where-config-label-is ${for_linode_config_label} ..." --caller="${caller}" --msg-type=notice
 
       config_ids=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/configs?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.label == \"${for_linode_config_label}\") | .id")
       status_handler check --curl-status "$?"
 
       if [ -z "${config_ids}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode config is found --for-linode-label ${for_linode_label} --where-config-label-is ${for_linode_config_label}"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode config is found --for-linode-label ${for_linode_label} --where-config-label-is ${for_linode_config_label}" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3157,12 +3039,12 @@ linode_api() {
     # If the option --first-record or --last-record is there, we filter this to only use one record
     if [ "${first_record}" == true ]; then
       config_ids=$(echo "${config_ids}" | head -n1)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of config ID selected (first record): "
+      [[ ${scripting} == "false" ]] && msg "List of config ID selected (first record): " --caller="${caller}" --msg-type=notice
     elif [ "${last_record}" == true ]; then
       config_ids=$(echo "${config_ids}" | tail -n1)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of config ID selected (last record): "
+      [[ ${scripting} == "false" ]] && msg "List of config ID selected (last record): " --caller="${caller}" --msg-type=notice
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of config ID(s) selected: "
+      [[ ${scripting} == "false" ]] && msg "List of config ID(s) selected: " --caller="${caller}" --msg-type=notice
     fi
 
     config_ids_count=$(echo "${config_ids}" | wc -w)
@@ -3184,7 +3066,7 @@ linode_api() {
       config_name=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances/${linode_id}/configs?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.id == ${config_id}) | .label")
       status_handler check --curl-status "$?"
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Deleting linode config ${config_name} ( ${config_id} ) ... ${config_count} / ${config_ids_count}"
+      [[ ${scripting} == "false" ]] && msg "Deleting linode config ${config_name} ( ${config_id} ) ... ${config_count} / ${config_ids_count}" --caller="${caller}" --msg-type=notice
 
       response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "${api_auth_string}" -X DELETE --url "${api_url}/linode/instances/${linode_id}/configs/${config_id}")
       status_handler check --curl-status "$?" --http-status "${response_code}" --print-http-success \
@@ -3213,27 +3095,27 @@ linode_api() {
     fi
 
     if [ -z "${for_domain_name}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)" --caller="${caller}" --msg-type=error
+      [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required domain ID --for-domain ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required domain ID --for-domain ${for_domain_name} ..." --caller="${caller}" --msg-type=notice
 
     domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq ".data[] | select(.domain == \"${for_domain_name}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -n "${domain_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: The domain ID --for-domain ${for_domain_name} is ${domain_id}"
+      [[ ${scripting} == "false" ]] && msg "The domain ID --for-domain ${for_domain_name} is ${domain_id}" --caller="${caller}" --msg-type=notice
       [[ ${scripting} == "true" ]] && echo "${domain_id}"
       _exit 0
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain ID is found --for-domain ${for_domain_name}"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain ID is found --for-domain ${for_domain_name}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
   # v1.0
-  # THis is bookmarked TODO
   elif [[ "${action^^}" == +(CREATE-DOMAIN|DOMAIN-CREATE|ADD-DOMAIN|DOMAIN-ADD) ]]; then
     local json_query_data
     if [ "${help}" == true ]; then
@@ -3269,10 +3151,10 @@ linode_api() {
 
     # The domain name is required
     if is_valid domain "${domain_name}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-name ${domain_name} is a valid FQDN"
+      # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-name ${domain_name} is a valid FQDN"
       json_query_data=$(jq --arg domain "${domain_name}" '.domain |= $domain' <<<"${json_query_data}")
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-name ${domain_name} is not a valid FQDN"
+      [[ ${scripting} == "false" ]] && msg "Error, the given --domain-name ${domain_name} is not a valid FQDN" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -3282,16 +3164,16 @@ linode_api() {
     # Validate domain_type
     if [ -n "${domain_type}" ]; then
       if is_valid domain_type "${domain_type}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-type ${domain_type} is a valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-type ${domain_type} is a valid"
         json_query_data=$(jq --arg type "${domain_type}" '.type |= $type' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-type ${domain_type} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-type ${domain_type} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the option --domain-type value is empty or not specified. The default values will be set as follow:"
-      [[ ${scripting} == "false" ]] && echo "--domain-type=master"
+      [[ ${scripting} == "false" ]] && msg "Notice, the option --domain-type value is empty or not specified. The default values will be set as follow:" --caller="${caller}" --msg-type=notice
+      [[ ${scripting} == "false" ]] && msg " --domain-type master" --caller="${caller}" --msg-type=notice
       domain_type="master"
       json_query_data=$(jq --arg type "${domain_type}" '.type |= $type' <<<"${json_query_data}")
     fi
@@ -3300,17 +3182,17 @@ linode_api() {
 
     if [ -n "${domain_email}" ]; then
       if is_valid email "${domain_email}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-email ${domain_email} is a valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-email ${domain_email} is a valid"
         json_query_data=$(jq --arg soa_email "${domain_email}" '.soa_email |= $soa_email' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-email ${domain_email} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-email ${domain_email} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     else
       if [ "${domain_type}" == "master" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the option --domain-email value is empty or not specified for --domain-type master. The default values will be set as follow:"
-        [[ ${scripting} == "false" ]] && echo "--domain-email=webmaster@${domain_name}"
+        [[ ${scripting} == "false" ]] && msg "Notice, the option --domain-email value is empty or not specified for --domain-type master. The default values will be set as follow:" --caller="${caller}" --msg-type=notice
+        [[ ${scripting} == "false" ]] && msg " --domain-email webmaster@${domain_name}" --caller="${caller}" --msg-type=notice
         domain_email="webmaster@${domain_name}"
         json_query_data=$(jq --arg soa_email "${domain_email}" '.soa_email |= $soa_email' <<<"${json_query_data}")
       fi
@@ -3325,7 +3207,7 @@ linode_api() {
       done
     else
       if [ "${domain_type}" == "slave" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the option --domain-master-ips value is empty for --domain-type slave. You have to specify at least 1 IP address (eg: --domain-master-ip 1.1.1.1 or --domain-master-ips \"1.2.3 2.3.3.3 ::1\")"
+        [[ ${scripting} == "false" ]] && msg "Error, the option --domain-master-ips value is empty for --domain-type slave. You have to specify at least 1 IP address (eg: --domain-master-ip 1.1.1.1 or --domain-master-ips \"1.2.3 2.3.3.3 ::1\")" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3334,10 +3216,10 @@ linode_api() {
     # Validate domain ttl
     if [ -n "${domain_ttl}" ]; then
       if is_valid domain_ttl "${domain_ttl}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-ttl ${domain_ttl} is a valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-ttl ${domain_ttl} is a valid"
         json_query_data=$(jq --argjson ttl_sec "${domain_ttl}" '.ttl_sec |= $ttl_sec' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-ttl ${domain_ttl} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-ttl ${domain_ttl} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3346,10 +3228,10 @@ linode_api() {
     # validate domain status
     if [ -n "${domain_status}" ]; then
       if is_valid domain_status "${domain_status}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-status ${domain_status} is a valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-status ${domain_status} is a valid"
         json_query_data=$(jq --arg status "${domain_status}" '.status |= $status' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-status ${domain_status} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-status ${domain_status} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3358,27 +3240,28 @@ linode_api() {
     # If the option --rebuild is passed, we must delete this domain first before creating the new one (useful for force creating a domain from scratch)
     if [ "${rebuild_value}" == "true" ]; then
       local domain_id
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the option --rebuild is enabled. The existing domain ${domain_name} will be deleted first (if found) before creating a new one"
+      [[ ${scripting} == "false" ]] && msg "Notice, the option --rebuild is enabled. The existing domain ${domain_name} will be deleted first (if found) before creating a new one" --caller="${caller}" --msg-type=notice
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Checking for an existing --domain-name ${domain_name} ..."
+      [[ ${scripting} == "false" ]] && msg "Checking for an existing --domain-name ${domain_name} ..." --caller="${caller}" --msg-type=notice
 
       domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.domain == \"${domain_name}\") | .id")
       status_handler check --curl-status "$?"
 
       if [ -n "${domain_id}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, found existing domain name ${domain_name}. Deleting the existing domain ${domain_name} ..."
+        [[ ${scripting} == "false" ]] && msg "Notice, found existing domain name ${domain_name}. Deleting the existing domain ${domain_name} ..." --caller="${caller}" --msg-type=notice
         response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "${api_auth_string}" -X DELETE --url "${api_url}/domains/${domain_id}")
         status_handler check --curl-status "$?" --http-status "${response_code}"
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, no existing domain ${domain_name} is found"
+        [[ ${scripting} == "false" ]] && msg "Notice, no existing domain ${domain_name} is found" --caller="${caller}" --msg-type=notice
       fi
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: json query is:"
-    [[ ${scripting} == "false" ]] && echo "${json_query_data}"
+    [[ ${scripting} == "false" ]] && msg "json query is:" --caller="${caller}" --msg-type=debug
+    [[ ${scripting} == "false" ]] && msg "${json_query_data}" --caller="${caller}" --msg-type=debug
+
+    [[ ${scripting} == "false" ]] && msg "Creating domain ${domain_name} ..." --caller="${caller}" --msg-type=notice
 
     # Now we create the domain
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating a domain name ${domain_name} ..."
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" -X POST --data "${json_query_data}" --url "${api_url}/domains")
     status_handler check --curl-status "$?" --http-status "${response_code}" --print-http-success \
@@ -3415,7 +3298,7 @@ linode_api() {
     json_query_data='{}'
 
     if [ -z "${for_domain_name}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -3423,10 +3306,10 @@ linode_api() {
     # Validate domain name - this is optional variable
     if [ -n "${domain_name}" ]; then
       if is_valid domain "${domain_name}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-name ${domain_name} is a valid FQDN"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-name ${domain_name} is a valid FQDN"
         json_query_data=$(jq --arg domain "${domain_name}" '.domain |= $domain' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-name ${domain_name} is not a valid FQDN"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-name ${domain_name} is not a valid FQDN" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3436,10 +3319,10 @@ linode_api() {
     #2) Validate domain type - this is optional variable
     if [ -n "${domain_type}" ]; then
       if is_valid domain_type "${domain_type}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-type ${domain_type} is a valid: ${domain_type}"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-type ${domain_type} is a valid: ${domain_type}"
         json_query_data=$(jq --arg type "${domain_type}" '.type |= $type' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-type ${domain_type} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-type ${domain_type} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3448,10 +3331,10 @@ linode_api() {
     #3 ) Validate domain email - this is optional variable
     if [ -n "${domain_email}" ]; then
       if is_valid email "${domain_email}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-email ${domain_email} is a valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-email ${domain_email} is a valid"
         json_query_data=$(jq --arg soa_email "${domain_email}" '.soa_email |= $soa_email' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-email ${domain_email} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-email ${domain_email} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3466,7 +3349,7 @@ linode_api() {
       done
     else
       if [ "${domain_type}" == "slave" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Notice, the option --domain-master-ips value is empty for --domain-type slave. You have to specify at least 1 IP address (eg: --domain-master-ip 1.1.1.1 or --domain-master-ips \"1.2.3 2.3.3.3 ::1\")"
+        [[ ${scripting} == "false" ]] && msg "Error, the option --domain-master-ips value is empty for --domain-type slave. You have to specify at least 1 IP address (eg: --domain-master-ip 1.1.1.1 or --domain-master-ips \"1.2.3 2.3.3.3 ::1\")" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3475,10 +3358,10 @@ linode_api() {
     #4) Validate domain ttl - this is optional variable
     if [ -n "${domain_ttl}" ]; then
       if is_valid domain_ttl "${domain_ttl}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-ttl ${domain_ttl} is a valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --domain-ttl ${domain_ttl} is a valid"
         json_query_data=$(jq --argjson ttl_sec "${domain_ttl}" '.ttl_sec |= $ttl_sec' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-ttl ${domain_ttl} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-ttl ${domain_ttl} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3487,30 +3370,30 @@ linode_api() {
     # Validate domain status - this is optional variable
     if [ -n "${domain_status}" ]; then
       if is_valid domain_status "${domain_status}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --domain-status ${domain_status} is a valid"
+        #  [[ ${scripting} == "false" ]] && msg "OK, the given --domain-status ${domain_status} is a valid"
         json_query_data=$(jq --arg status "${domain_status}" '.status |= $status' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-status ${domain_status} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --domain-status ${domain_status} is not a valid" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required domain ID for --for-domain-name ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required domain ID for --for-domain-name ${for_domain_name} ..." --caller="${caller}" --msg-type=info
 
     domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq ".data[] | select(.domain == \"${for_domain_name}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${domain_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain ID is found when searching --for-domain-name ${for_domain_name}"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain ID is found when searching --for-domain-name ${for_domain_name}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: json query data is:"
-    [[ ${scripting} == "false" ]] && echo "${json_query_data}"
+    [[ ${scripting} == "false" ]] && msg "json query data is:" --caller="${caller}" --msg-type=info
+    [[ ${scripting} == "false" ]] && msg "${json_query_data}" --caller="${caller}" --msg-type=info
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Updating the domain name ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Updating the domain name ${for_domain_name} ..." --caller="${caller}" --msg-type=info
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" \
       -H "${api_auth_string}" -X PUT --data "${json_query_data}" --url "${api_url}/domains/${domain_id}")
@@ -3550,30 +3433,30 @@ linode_api() {
 
     if [[ "${action^^}" == +(DELETE-DOMAINS|REMOVE-DOMAINS) ]]; then
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching all domains in linode ... "
+      [[ ${scripting} == "false" ]] && msg "Searching all domains in linode ... " --caller="${caller}" --msg-type=info
 
       domain_ids=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | .id")
       status_handler check --curl-status "$?"
 
       if [ -z "${domain_ids}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode domain is found"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode domain is found" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     else # delete-domain or remove-domains
       if [ -z "${for_domain_name}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the action ${action} (without a postfix -s) required --for-domain option with a value to search an existing domain. Please, provide a valid input (eg: --for-domain domain.com)"
+        [[ ${scripting} == "false" ]] && msg "Error, the action ${action} (without a postfix -s) required --for-domain option with a value to search an existing domain. Please, provide a valid input (eg: --for-domain domain.com)" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching for domain ${for_domain_name} in linode ... "
+      [[ ${scripting} == "false" ]] && msg "Searching for domain ${for_domain_name} in linode ... " --caller="${caller}" --msg-type=info
 
       # By logic, this will always return 1 if found but we don't know the API might change to have duplicated domain names. So use this.
       domain_ids=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.domain == \"${for_domain_name}\") | .id")
       status_handler check --curl-status "$?"
 
       if [ -z "${domain_ids}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode domain ${for_domain_name} is found"
+        [[ ${scripting} == "false" ]] && msg "Error, no linode domain ${for_domain_name} is found" --caller="${caller}" --msg-type=error
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3583,13 +3466,13 @@ linode_api() {
     # If the option --first-record or --last-record is there, we filter this to only use one record
     if [ "${first_record}" == true ]; then
       domain_ids=$(echo "${domain_ids}" | head -n1)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of domain ID selected (first record): "
+      [[ ${scripting} == "false" ]] && msg "List of domain ID selected (first record): " --caller="${caller}" --msg-type=info
     elif [ "${last_record}" == true ]; then
       domain_ids=$(echo "${domain_ids}" | tail -n1)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of domain ID selected (last record): "
+      [[ ${scripting} == "false" ]] && msg "List of domain ID selected (last record): " --caller="${caller}" --msg-type=info
 
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: List of domain ID(s) selected: "
+      [[ ${scripting} == "false" ]] && msg "List of domain ID(s) selected: " --caller="${caller}" --msg-type=info
     fi
 
     domain_ids_count=$(echo "${domain_ids}" | wc -w)
@@ -3611,7 +3494,7 @@ linode_api() {
       domain_name=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.id == ${domain_id}) | .domain")
       status_handler check --curl-status "$?"
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Deleting linode domain ${domain_name} ( ${domain_id} ) ... ${domain_count} / ${domain_ids_count}"
+      [[ ${scripting} == "false" ]] && msg "Deleting linode domain ${domain_name} ( ${domain_id} ) ... ${domain_count} / ${domain_ids_count}" --caller="${caller}" --msg-type=info
 
       response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "${api_auth_string}" -X DELETE --url "${api_url}/domains/${domain_id}")
       status_handler check --curl-status "$?" --http-status "${response_code}" --print-http-success \
@@ -3648,18 +3531,18 @@ linode_api() {
     fi
 
     if [ -z "${for_domain_name}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required domain ID for --for-domain-name ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required domain ID for --for-domain-name ${for_domain_name} ..." --caller="${caller}" --msg-type=info
 
     domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.domain == \"${for_domain_name}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${domain_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain is found --for-domain ${for_domain_name}"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain is found --for-domain ${for_domain_name}" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -3691,12 +3574,12 @@ linode_api() {
     fi
 
     if [ -z "${json_search_string}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, you must provide at least one search option (eg: --for-record-name abc)"
+      [[ ${scripting} == "false" ]] && msg "Error, you must provide at least one search option (eg: --for-record-name abc)" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching record in domain ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Searching record in domain ${for_domain_name} ..." --caller="${caller}" --msg-type=info
 
     record_ids=$(curl -s -G -H "${api_auth_string}" --url "${api_url}/domains/${domain_id}/records?page_size=${linode_max_page_size}" | jq ".data[] | select(${json_search_string}) | .id")
     status_handler check --curl-status "$?"
@@ -3711,12 +3594,12 @@ linode_api() {
       # If the option --first-record or --last-record is there, we filter this to only use one record
       if [ "${first_record}" == true ]; then
         record_ids=$(echo "${record_ids}" | head -n1)
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (first record): "
+        [[ ${scripting} == "false" ]] && msg "List of Record selected (first record): " --caller="${caller}" --msg-type=info
       elif [ "${last_record}" == true ]; then
         record_ids=$(echo "${record_ids}" | tail -n1)
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (last record): "
+        [[ ${scripting} == "false" ]] && msg "List of Record selected (last record): " --caller="${caller}" --msg-type=info
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record(s) selected: "
+        [[ ${scripting} == "false" ]] && msg "List of Record(s) selected: " --caller="${caller}" --msg-type=info
       fi
 
       count_search=0
@@ -3737,7 +3620,7 @@ linode_api() {
       [[ ${scripting} == "false" ]] && echo ""
 
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain record is found based on the provided search!"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain record is found based on the provided search!" --caller="${caller}" --msg-type=error
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -3813,28 +3696,28 @@ linode_api() {
 
     # This --for-domain is required
     if [ -z "${for_domain_name}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required domain ID --for=domain ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required domain ID --for=domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
     domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq ".data[] | select(.domain == \"${for_domain_name}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${domain_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain is found --for-domain ${for_domain_name}"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain is found --for-domain ${for_domain_name}" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     # This --record-type is required
     if is_valid record_type "${record_type}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-type ${record_type} is valid"
+      # [[ ${scripting} == "false" ]] && msg "OK, the given --record-type ${record_type} is valid"
       json_query_data=$(jq --arg type "${record_type}" '.type |= $type' <<<"${json_query_data}")
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-type ${record_type} is not a valid. Please provide a valid input (eg: --record-type TXT)"
+      [[ ${scripting} == "false" ]] && msg "Error, the given --record-type ${record_type} is not a valid. Please provide a valid input (eg: --record-type TXT)" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -3842,11 +3725,11 @@ linode_api() {
     # 3) Validate domain record ttl if given (this is optional)
     if [ -n "${record_ttl}" ]; then
       if is_valid record_ttl "${record_ttl}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-ttl ${record_ttl} is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-ttl ${record_ttl} is valid"
         json_query_data=$(jq --argjson ttl_sec "${record_ttl}" '.ttl_sec |= $ttl_sec' <<<"${json_query_data}")
 
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-ttl ${record_ttl} is not a valid. Please provide a valid input (eg: --record-ttl 30)"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-ttl ${record_ttl} is not a valid. Please provide a valid input (eg: --record-ttl 30)" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3865,10 +3748,10 @@ linode_api() {
       # Validate the record name not to have invalid character if given (this record name for TXT type is not required)
       if [ -n "${record_name}" ]; then
         if is_valid server_record_valid_character "${record_name}" || is_valid domain "${record_name}"; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
-
+          #[[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
+          :
         else
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-name ${record_name} (for record hostname) is invalid"
+          [[ ${scripting} == "false" ]] && msg "Error, the given --record-name ${record_name} (for record hostname) is invalid" --caller="${caller}" --msg-type="error"
           [[ ${scripting} == "true" ]] && echo "error"
           _exit 1
         fi
@@ -3880,7 +3763,7 @@ linode_api() {
       json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
 
       # Create the DNS record for TXT (giving only text)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating a TXT --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..."
+      [[ ${scripting} == "false" ]] && msg "Creating a TXT --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
     # v1.0
     elif [ "${record_type}" == "MX" ]; then
@@ -3901,20 +3784,20 @@ linode_api() {
       # 1) Validate server name record (or record name)
 
       if is_valid domain "${record_name}" || is_valid server_record_valid_character "${record_name}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record subdomain) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record subdomain) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-name ${record_name} (for record subdomain) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-name ${record_name} (for record subdomain) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
       # 2) Validate domain/hostname record
       if is_valid domain "${record_value}" && is_valid domain "${record_value}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-value ${record_value} (for record mail server) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-value ${record_value} (for record mail server) is valid"
         json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-value ${record_value} (for record mail server) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-value ${record_value} (for record mail server) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3922,10 +3805,10 @@ linode_api() {
       if [ -n "${record_priority}" ]; then
         # 3) Validate record priority value
         if is_valid record_priority "${record_priority}"; then
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-priority ${record_priority} (for record preference) is valid"
+          # [[ ${scripting} == "false" ]] && msg "OK, the given --record-priority ${record_priority} (for record preference) is valid"
           json_query_data=$(jq --argjson priority "${record_priority}" '.priority |= $priority' <<<"${json_query_data}")
         else
-          [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-priority ${record_priority} (for record preference) is not valid"
+          [[ ${scripting} == "false" ]] && msg "Error, the given --record-priority ${record_priority} (for record preference) is not valid" --caller="${caller}" --msg-type="error"
           [[ ${scripting} == "true" ]] && echo "error"
           _exit 1
         fi
@@ -3933,7 +3816,7 @@ linode_api() {
       fi
 
       # Create the DNS record for MX (giving only text)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating an MX --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..."
+      [[ ${scripting} == "false" ]] && msg "Creating an MX --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
     # v1.0
     elif [ "${record_type}" == "NS" ]; then
 
@@ -3949,10 +3832,10 @@ linode_api() {
 
       # Validate record name server (or record name) it is required
       if is_valid domain "${record_name}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record name server) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record name server) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-name ${record_name} (for record name server) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-name ${record_name} (for record name server) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -3962,20 +3845,20 @@ linode_api() {
       fi
 
       if is_valid domain "${record_value}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-value ${record_value} (for record subdomain) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-value ${record_value} (for record subdomain) is valid"
         json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
 
       elif is_valid server_record_valid_character "${record_value}"; then
         record_value="${record_value}.${for_domain_name}"
         json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-value ${record_value} (for record subdomain) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-value ${record_value} (for record subdomain) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
       # Create the DNS record for NS (giving only text)
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating an NS --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..."
+      [[ ${scripting} == "false" ]] && msg "Creating an NS --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
       # v1.0
     elif [[ "${record_type}" == "A" ]]; then
       if [ -n "${record_hostname}" ]; then
@@ -3994,31 +3877,31 @@ linode_api() {
 
       if [[ -z "${record_name}" || "${record_name}" == "@" ]]; then
         record_name="${for_domain_name}"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       elif [ "${record_name}" == "*" ]; then
         record_name="*"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       # Extra validation to include wildcard character in DNS record * and @ for root domain
       elif is_valid domain "${record_name}" || is_valid server_record_valid_character "${record_name}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-name ${record_name} (for record hostname) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-name ${record_name} (for record hostname) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
       if is_valid ipv4 "${record_value}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-value ${record_value} (for record IPv4 address) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-value ${record_value} (for record IPv4 address) is valid"
         json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, the given --record-value ${record_value} (for record IPv4 address) is not valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-value ${record_value} (for record IPv4 address) is not valid" --caller="${caller}" --msg-type="error"
         _exit 1
       fi
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating an A (IPv4) --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..."
+      [[ ${scripting} == "false" ]] && msg "Creating an A (IPv4) --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
       # v1.0
     elif [[ "${record_type}" == "AAAA" ]]; then
@@ -4038,31 +3921,32 @@ linode_api() {
 
       if [[ -z "${record_name}" || "${record_name}" == "@" ]]; then
         record_name="${for_domain_name}"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       elif [ "${record_name}" == "*" ]; then
         record_name="*"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       # Extra validation to include wildcard character in DNS record * and @ for root domain
       elif is_valid domain "${record_name}" || is_valid server_record_valid_character "${record_name}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        #  [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-name ${record_name} (for record hostname) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-name ${record_name} (for record hostname) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
       if is_valid ipv6 "${record_value}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-value ${record_value} (for record IPv6 address) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-value ${record_value} (for record IPv6 address) is valid"
         json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, the given --record-value ${record_value} (for record IPv6 address) is not valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-value ${record_value} (for record IPv6 address) is not valid" --caller="${caller}" --msg-type="error"
+        [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating an AAAA (IPv6) --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..."
+      [[ ${scripting} == "false" ]] && msg "Creating an AAAA (IPv6) --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
       # For CNAME record rules:
       # 1) The record name is actually a hostname and it is required. This record cannot contain any special characters except underscore. You can use --record-hostname as an alias option.
       # 2) The record value is also known as hostname (or alias to) and it is not required. If you leave it empty it will use the root domain. You can use --record-alias as an alias option.
@@ -4079,32 +3963,32 @@ linode_api() {
 
       if [ "${record_name}" == "*" ]; then
         record_name="*"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       elif is_valid server_record_valid_character "${record_name}" && [ -n "${record_name}" ]; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-name ${record_name} (for record hostname) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-name ${record_name} (for record hostname) is valid"
         json_query_data=$(jq --arg name "${record_name}" '.name |= $name' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-name ${record_name} (for record hostname) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-name ${record_name} (for record hostname) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
       if [[ -z "${record_value}" || "${record_value}" == "@" ]]; then
         record_value="${for_domain_name}"
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-value ${record_value} (for record hostname) is valid"
+        #[[ ${scripting} == "false" ]] && msg "OK, the given --record-value ${record_value} (for record hostname) is valid"
         json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
       # Extra validation to include wildcard character in DNS record * and @ for root domain
       elif is_valid domain "${record_value}" || is_valid server_record_valid_character "${record_value}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-value ${record_value} (for record hostname) is valid"
+        #[[ ${scripting} == "false" ]] && msg "OK, the given --record-value ${record_value} (for record hostname) is valid"
         json_query_data=$(jq --arg target "${record_value}" '.target |= $target' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-value ${record_value} (for record hostname) is invalid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-value ${record_value} (for record hostname) is invalid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Creating a CNAME --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..."
+      [[ ${scripting} == "false" ]] && msg "Creating a CNAME --record-name [ ${record_name} ] and --record-value [ ${record_value} ] --where-domain-is-domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
     elif [ "${record_type}" == "SRV" ]; then
       :
@@ -4114,8 +3998,8 @@ linode_api() {
       :
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: json post query is:"
-    [[ ${scripting} == "false" ]] && echo "${json_query_data}"
+    [[ ${scripting} == "false" ]] && msg "json post query is:" --caller="${caller}" --msg-type="debug"
+    [[ ${scripting} == "false" ]] && msg "${json_query_data}" --caller="${caller}" --msg-type="debug"
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" -X POST --data "${json_query_data}" --url "${api_url}/domains/${domain_id}/records")
     status_handler check --curl-status "$?" --http-status "${response_code}" --print-http-success --error-msg "there was something wrong when creating the domain record for domain ${domain_name}" --success-msg "the domain record for domain ${domain_name} has been created"
@@ -4152,18 +4036,18 @@ linode_api() {
     fi
 
     if [ -z "${for_domain_name}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required domain ID --for-domain-name ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required domain ID --for-domain-name ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
     domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.domain == \"${for_domain_name}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${domain_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain is found --for-domain ${for_domain_name}"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain is found --for-domain ${for_domain_name}" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4194,7 +4078,7 @@ linode_api() {
     fi
 
     if [ -z "${json_search_string}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, you must provide at least one search option (eg: --for-record-name abc)"
+      [[ ${scripting} == "false" ]] && msg "Error, you must provide at least one search option (eg: --for-record-name abc)" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4211,17 +4095,17 @@ linode_api() {
     fi
 
     if [ -n "${record_type}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, you do not need to provide --record-type option when doing record update because record TYPE is not editable in linode once created!"
+      [[ ${scripting} == "false" ]] && msg "Error, you do not need to provide --record-type option when doing record update because record TYPE is not editable in linode once created!" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     if [ -n "${record_priority}" ]; then
       if is_valid record_priority "${record_priority}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-priority ${record_priority} (for record preference) is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-priority ${record_priority} (for record preference) is valid"
         json_query_data=$(jq --argjson priority "${record_priority}" '.priority |= $priority' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-priority ${record_priority} (for record preference) is not valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-priority ${record_priority} (for record preference) is not valid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -4229,17 +4113,17 @@ linode_api() {
 
     if [ -n "${record_ttl}" ]; then
       if is_valid record_ttl "${record_ttl}"; then
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-ttl ${record_ttl} is valid"
+        # [[ ${scripting} == "false" ]] && msg "OK, the given --record-ttl ${record_ttl} is valid"
         json_query_data=$(jq --argjson ttl_sec "${record_ttl}" '.ttl_sec |= $ttl_sec' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --record-ttl ${record_ttl} is not a valid"
+        [[ ${scripting} == "false" ]] && msg "Error, the given --record-ttl ${record_ttl} is not a valid" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
     fi
 
     # Now we begin search what we want based on json_search_string
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching record in domain ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Searching record in domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
     record_ids=$(curl -s -G -H "${api_auth_string}" --url "${api_url}/domains/${domain_id}/records?page_size=${linode_max_page_size}" | jq ".data[] | select(${json_search_string}) | .id")
     status_handler check --curl-status "$?"
@@ -4254,12 +4138,12 @@ linode_api() {
       # If the option --first-record or --last-record is there, we filter this to only use one record
       if [ "${first_record}" == true ]; then
         record_ids=$(echo "${record_ids}" | head -n1)
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (first record): "
+        [[ ${scripting} == "false" ]] && msg "List of Record selected (first record): "
       elif [ "${last_record}" == true ]; then
         record_ids=$(echo "${record_ids}" | tail -n1)
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (last record): "
+        [[ ${scripting} == "false" ]] && msg "List of Record selected (last record): "
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record(s) selected: "
+        [[ ${scripting} == "false" ]] && msg "List of Record(s) selected: "
       fi
 
       count_search=0
@@ -4292,7 +4176,7 @@ linode_api() {
       fi
       # For the output, example if 3 records success, it will print 3 times success
       for record_id in ${record_ids}; do
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Updating the domain record ( ${record_id} ) for the domain ${for_domain_name} ${count_updated}/${record_ids_count}..."
+        [[ ${scripting} == "false" ]] && msg "Updating the domain record ( ${record_id} ) for the domain ${for_domain_name} ${count_updated}/${record_ids_count}..." --caller="${caller}" --msg-type="info"
 
         response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" \
           -X PUT --data "${json_query_data}" --url "${api_url}/domains/${domain_id}/records/${record_id}")
@@ -4304,7 +4188,7 @@ linode_api() {
 
     else
 
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain record is found based on the provided search!"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain record is found based on the provided search!" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4335,18 +4219,18 @@ linode_api() {
     fi
 
     if [ -z "${for_domain_name}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-domain option is required with a value. Please, provide a valid input (eg: --for-domain domain.com)" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting a required domain ID for --for-domain-name ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting a required domain ID for --for-domain-name ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
     domain_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/domains?page_size=${linode_max_page_size}" | jq -r ".data[] | select(.domain == \"${for_domain_name}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${domain_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain is found --for-domain ${for_domain_name}"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain is found --for-domain ${for_domain_name}" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4377,12 +4261,12 @@ linode_api() {
     fi
 
     if [ -z "${json_search_string}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, you must provide at least one search option (eg: --for-record-name abc)"
+      [[ ${scripting} == "false" ]] && msg "Error, you must provide at least one search option (eg: --for-record-name abc)" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Searching record in domain ${for_domain_name} ..."
+    [[ ${scripting} == "false" ]] && msg "Searching record in domain ${for_domain_name} ..." --caller="${caller}" --msg-type="info"
 
     record_ids=$(curl -s -G -H "${api_auth_string}" --url "${api_url}/domains/${domain_id}/records?page_size=${linode_max_page_size}" | jq ".data[] | select(${json_search_string}) | .id")
     status_handler check --curl-status "$?"
@@ -4397,12 +4281,12 @@ linode_api() {
       # If the option --first-record or --last-record is there, we filter this to only use one record
       if [ "${first_record}" == true ]; then
         record_ids=$(echo "${record_ids}" | head -n1)
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (first record): "
+        [[ ${scripting} == "false" ]] && msg "List of Record selected (first record): " --caller="${caller}" --msg-type="info"
       elif [ "${last_record}" == true ]; then
         record_ids=$(echo "${record_ids}" | tail -n1)
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record selected (last record): "
+        [[ ${scripting} == "false" ]] && msg "List of Record selected (last record): " --caller="${caller}" --msg-type="info"
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: List of Record(s) selected: "
+        [[ ${scripting} == "false" ]] && msg "List of Record(s) selected: " --caller="${caller}" --msg-type="info"
       fi
 
       count_search=0
@@ -4429,14 +4313,14 @@ linode_api() {
       fi
 
       for record_id in ${record_ids}; do
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Deleting the domain record ( ${record_id} ) for the domain ${for_domain_name} ${count_deleted}/${record_ids_count}..."
+        [[ ${scripting} == "false" ]] && msg "Deleting the domain record ( ${record_id} ) for the domain ${for_domain_name} ${count_deleted}/${record_ids_count}..." --caller="${caller}" --msg-type="info"
 
         response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" -X DELETE --url "${api_url}/domains/${domain_id}/records/${record_id}")
         status_handler check --curl-status "$?" --http-status "${response_code}" --print-http-success --error-msg "there was something wrong when deleting the domain record (${record_id}) for domain ${for_domain_name}" --success-msg "the domain record (${record_id}) for domain ${for_domain_name} has been deleted"
         ((count_deleted++))
       done
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no domain record is found based on the provided search!"
+      [[ ${scripting} == "false" ]] && msg "Error, no domain record is found based on the provided search!" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4458,11 +4342,11 @@ linode_api() {
       linode_ipv4s=$(echo "${linode_ipv4s}" | tail -n1)
     fi
     if [ -n "${linode_ipv4s}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, found one or more IPv4 address(es):"
+      [[ ${scripting} == "false" ]] && msg "Success, found one or more IPv4 address(es):" --caller="${caller}" --msg-type="success"
       [[ ${scripting} == "false" ]] && echo "${linode_ipv4s}"
       [[ ${scripting} == "true" ]] && echo "${linode_ipv4s}"
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no IP address IPv4 is found!"
+      [[ ${scripting} == "false" ]] && msg "Error, no IP address IPv4 is found!" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4485,10 +4369,10 @@ linode_api() {
       linode_ipv6=$(echo "${linode_ipv6}" | tail -n1)
     fi
     if [ -n "${linode_ipv6}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, found one or more IPv6 address(es): ${linode_ipv6}"
+      [[ ${scripting} == "false" ]] && msg "Success, found one or more IPv6 address(es): ${linode_ipv6}" --caller="${caller}" --msg-type="success"
       [[ ${scripting} == "true" ]] && echo "${linode_ipv6}"
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no IP address IPv6 is found!"
+      [[ ${scripting} == "false" ]] && msg "Error, no IP address IPv6 is found!" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4501,17 +4385,18 @@ linode_api() {
       _exit 0
     fi
     if [ -z "${for_linode_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.domain.com)"
+      [[ ${scripting} == "false" ]] && msg "Error, --for-linode-label option is required with a value. Please, provide a valid input (eg: --for-linode-label server.domain.com)" --caller="${caller}" --msg-type="error"
+      [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Getting required linode ID for --for-linode-label ${for_linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Getting required linode ID for --for-linode-label ${for_linode_label} ..." --caller="${caller}" --msg-type="info"
 
     linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${for_linode_label}\") | .id")
     status_handler check --curl-status "$?"
 
     if [ -z "${linode_id}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode ID is found when searching for linode label ${for_linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found when searching for linode label ${for_linode_label}" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4521,7 +4406,7 @@ linode_api() {
       if is_valid not-empty-string "${linode_label}"; then
         json_query_data=$(jq --arg linode_label "${linode_label}" '.label |= $linode_label' <<<"${json_query_data}")
       else
-        [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, --linode-label option required a valid value (eg: --linode-label sun.sofibox.com)"
+        [[ ${scripting} == "false" ]] && msg "Error, --linode-label option required a valid value (eg: --linode-label sun.sofibox.com)" --caller="${caller}" --msg-type="error"
         [[ ${scripting} == "true" ]] && echo "error"
         _exit 1
       fi
@@ -4533,9 +4418,9 @@ linode_api() {
       json_query_data=$(jq --argjson linode_enable_watchdog "${linode_enable_watchdog}" '.watchdog_enabled |= $linode_enable_watchdog' <<<"${json_query_data}")
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Update query is:"
-    [[ ${scripting} == "false" ]] && echo "${json_query_data}"
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Updating the linode ${linode_label} ..."
+    [[ ${scripting} == "false" ]] && msg "Update query is:" --caller="${caller}" --msg-type="info"
+    [[ ${scripting} == "false" ]] && msg "${json_query_data}" --msg-type="debug"
+    [[ ${scripting} == "false" ]] && msg "Updating linode ID ${linode_id} ..." --caller="${caller}" --msg-type="info"
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" \
       -H "${api_auth_string}" \
@@ -4566,16 +4451,16 @@ linode_api() {
       linode_label=$(curl -s -H "Content-Type: application/json" -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.ipv6 | startswith(\"${linode_ip_address}/\")) | .label" | tail -n 1)
       status_handler check --curl-status "$?"
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the IP address ${linode_ip_address} is not valid"
+      [[ ${scripting} == "false" ]] && msg "Error, the IP address ${linode_ip_address} is not valid" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
     if [ -n "${linode_label}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, linode label for IP address ${ip_address} is ${linode_label}"
+      [[ ${scripting} == "false" ]] && msg "Success, linode label for IP address ${ip_address} is ${linode_label}" --caller="${caller}" --msg-type="success"
       [[ ${scripting} == "true" ]] && echo "${linode_label}"
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no linode label is found for IP address ${ip_address}"
+      [[ ${scripting} == "false" ]] && msg "Error, no linode label is found for IP address ${ip_address}" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4588,9 +4473,10 @@ linode_api() {
       _exit 0
     fi
     if is_valid ipv4 "${ip_address}" || is_valid ipv6 "${ip_address}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --record-value ${ip_address} is valid"
+      # [[ ${scripting} == "false" ]] && msg "OK, the given --record-value ${ip_address} is valid"
+      :
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, the given --record-value ${ip_address} is not valid"
+      [[ ${scripting} == "false" ]] && msg "Warning, the given --record-value ${ip_address} is not valid" --caller="${caller}" --msg-type="warning"
       _exit 1
     fi
 
@@ -4603,10 +4489,10 @@ linode_api() {
     fi
 
     if [ -n "${response_value}" ]; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Success, the value for ${get_value} for IP address ${ip_address} is ${response_value}"
+      [[ ${scripting} == "false" ]] && msg "Success, the value for ${get_value} for IP address ${ip_address} is ${response_value}" --caller="${caller}" --msg-type="success"
       [[ ${scripting} == "true" ]] && echo "${response_value}"
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, no value ${get_value} is found for IP address ${ip_address}"
+      [[ ${scripting} == "false" ]] && msg "Error, no value ${get_value} is found for IP address ${ip_address}" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
@@ -4637,9 +4523,11 @@ linode_api() {
     fi
 
     if is_valid ipv4 "${for_ip_address}" || is_valid ipv6 "${for_ip_address}"; then
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: OK, the given --for-ip-address ${for_ip_address} is valid"
+      # [[ ${scripting} == "false" ]] && msg "OK, the given --for-ip-address ${for_ip_address} is valid"
+      :
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Warning, the given --for-ip-address ${for_ip_address} is not valid"
+      [[ ${scripting} == "false" ]] && msg "Error, the given --for-ip-address ${for_ip_address} is not valid" --caller="${caller}" --msg-type="error"
+      [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
@@ -4648,19 +4536,20 @@ linode_api() {
     if is_valid domain "${domain_name}"; then
       json_query_data=$(jq --arg domain_name "${domain_name}" '.rdns |= $domain_name' <<<"${json_query_data}")
     else
-      [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given --domain-name ${domain_name} is not FQDN"
+      [[ ${scripting} == "false" ]] && msg "Error, the given --domain-name ${domain_name} is not FQDN" --caller="${caller}" --msg-type="error"
       [[ ${scripting} == "true" ]] && echo "error"
       _exit 1
     fi
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Updating reverse DNS for linode --for-ip-address ${for_ip_address} into ${domain_name}"
+    [[ ${scripting} == "false" ]] && msg "Updating reverse DNS for linode --for-ip-address ${for_ip_address} into ${domain_name}" --caller="${caller}" --msg-type="info"
 
     response_code=$(curl -w "%{http_code}" -s -o "${RESPONSE_FILE}" -H "Content-Type: application/json" -H "${api_auth_string}" -X PUT --data "${json_query_data}" --url "${api_url}/networking/ips/${for_ip_address}")
     status_handler check --curl-status "$?" --http-status "${response_code}" --print-http-success --error-msg "there was something wrong when updating the linode reverse dns --for-ip-address ${for_ip_address}" --success-msg "the linode reverse dns --for-ip-address ${for_ip_address} has been updated into ${domain_name}"
 
   else
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given action '${action}' does not exist. See ${SCRIPT_NAME} linode --help for more information"
+    [[ ${scripting} == "false" ]] && msg "Error, the given action '${action}' does not exist. See ${SCRIPT_NAME} linode --help for more information" --caller="${caller}" --msg-type="error"
+    [[ ${scripting} == "true" ]] && echo "error"
     [[ ${scripting} == "true" ]] && echo "invalid-action"
     _exit 1
   fi
@@ -4689,7 +4578,7 @@ directadmin_api() {
   retval=$?
 
   if [ ${retval} != 0 ]; then
-    echo "[${caller}]: Error, invalid option"
+    msg "Error, invalid option"
     _exit 1
   fi
 
@@ -4803,7 +4692,7 @@ directadmin_api() {
       ;;
     -*)
       opt="$1"
-      echo "[${caller}]: Error, invalid option ${opt}. Use --help to see the valid options"
+      msg "Error, invalid option ${opt}. Use --help to see the valid options" --caller="${caller}" --msg-type="error"
       _exit 1
       ;;
     *)
@@ -4908,12 +4797,12 @@ directadmin_api() {
 
     # Check for IPv4 or IPv6 address format
     if ! is_valid ipv46 "${ip_address}"; then
-      echo "[${caller}]: Error, invalid IP address ${ip_address}"
+      msg "Error, invalid IP address ${ip_address}"
       _exit 1
     fi
 
     if [[ -z "${netmask}" && -z "${prefix}" ]]; then
-      echo "[${caller}]: Error, a valid IP address netmask or prefix is required (eg: --netmask 255.255.255.0 or --prefix /24)"
+      msg "Error, a valid IP address netmask or prefix is required (eg: --netmask 255.255.255.0 or --prefix /24)"
       _exit 1
     fi
 
@@ -4923,7 +4812,7 @@ directadmin_api() {
 
       if [ -n "${netmask}" ]; then
         if ! is_valid ipv4_netmask "${netmask}"; then
-          echo "[${caller}]: Error, invalid IPv4 netmask ${netmask}. Please use the valid netmask format (eg: 255.0.0.0 - 255.255.255.0)"
+          msg "Error, invalid IPv4 netmask ${netmask}. Please use the valid netmask format (eg: 255.0.0.0 - 255.255.255.0)"
           _exit 1
         else
           given_form="${netmask}"
@@ -4932,7 +4821,7 @@ directadmin_api() {
 
       if [ -n "${prefix}" ]; then
         if ! is_valid ipv4_prefix "${prefix}"; then
-          echo "[${caller}]: Error, invalid IPv4 prefix ${prefix}. PLease use the valid prefix format (eg: /1 - /32)"
+          msg "Error, invalid IPv4 prefix ${prefix}. PLease use the valid prefix format (eg: /1 - /32)"
           _exit 1
         else
           given_form="${prefix}"
@@ -4951,7 +4840,7 @@ directadmin_api() {
 
       if [ -n "${prefix}" ]; then
         if ! is_valid ipv6_prefix "${prefix}"; then
-          echo "[${caller}]: Error, invalid prefix ${prefix} for IPv6 address ${ip_address}. Please use the valid prefix range (eg: /1 - /128)"
+          msg "Error, invalid prefix ${prefix} for IPv6 address ${ip_address}. Please use the valid prefix range (eg: /1 - /128)"
           _exit 1
         else
           given_form="${prefix}"
@@ -4967,7 +4856,7 @@ directadmin_api() {
 
   else
 
-    [[ ${scripting} == "false" ]] && echo "[${caller}]: Error, the given action '${action}' does not exist. See ${SCRIPT_NAME} linode --help for more information"
+    [[ ${scripting} == "false" ]] && msg "Error, the given action '${action}' does not exist. See ${SCRIPT_NAME} linode --help for more information"
     [[ ${scripting} == "true" ]] && echo "invalid-action"
     _exit 1
   fi
@@ -5048,7 +4937,6 @@ if ! command -v maxibuild >/dev/null 2>&1; then
   exit 1
 fi
 
-
 maxibuild --include "curl,dnsutils,ipcalc,mail,jq"
 
 MAIL_BIN=$(command -v mail)
@@ -5107,7 +4995,17 @@ while [ "${ARGNUM}" -gt 0 ]; do
     exit ${RETVAL}
     ;;
   -t | --test)
-  msg "Running in test mode" --msg-type info
+    duration=0
+    while :; do
+      ((duration++))
+      msg "Running in test x ${duration}" --start-spin
+      if [ ${duration} -gt 4 ]; then
+        msg "Running in test ${duration}" --stop-spin-newline
+        break
+      fi
+      sleep 1
+    done
+
     exit 0
     ;;
   -u | --update | update)
