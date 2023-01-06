@@ -4890,7 +4890,7 @@ if ! command -v maxibuild >/dev/null 2>&1; then
 fi
 
 
-maxibuild --include-packages "curl,ipcalc,dnsutils,jq" --include-commands "mail,dig"
+maxibuild --include-packages "curl,dnsutils,jq" --include-commands "ipcalc,mail,dig"
 
 MAIL_BIN=$(command -v mail)
 LOG_PATH="${SCRIPT_PATH}/log"
