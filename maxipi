@@ -4889,7 +4889,8 @@ if ! command -v maxibuild >/dev/null 2>&1; then
   exit 1
 fi
 
-REQUIRED_COMMANDS=$(awk -F'=' /"^$(get_distro id)="/'{print $2}' "${SCRIPT_PATH}/required_commands.txt" | tr ',' '\n' | tr -d '"')
+REQUIRED_COMMANDS=$(awk -F'=' /"^$(get_distro id)="/'{print $2}' "${SCRIPT_PATH}/required_commands.txt")
+
 if [ -n "${REQUIRED_COMMANDS}" ]; then
   maxibuild --include "${REQUIRED_COMMANDS}"
 else
