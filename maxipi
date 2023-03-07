@@ -727,7 +727,7 @@ status_handler() {
   caller="${SCRIPT_NAME}->${FUNCNAME[0]}"
 
   if [ ${argnum} -eq 0 ]; then
-    msg "Error, no argument is supplied. Use [ ${SCRIPT_NAME} --create-var --help ] to see the valid options"  --msg-type=error --caller="${caller}"
+    msg "Error, no argument is supplied. Use [ ${SCRIPT_NAME} --create-var --help ] to see the valid options" --msg-type=error --caller="${caller}"
     exit 1
   fi
   short_opts="c:,d:"
@@ -825,7 +825,7 @@ status_handler() {
       else
         if [[ ${scripting} == "false" ]]; then
           if [ -n "${error_msg}" ]; then
-            msg "Error(${code}), ${error_msg}"  --msg-type=error --caller="${caller}->status"
+            msg "Error(${code}), ${error_msg}" --msg-type=error --caller="${caller}->status"
           else
             msg "[ Error(${code}) ]" --msg-type=error --caller="${caller}->status"
           fi
@@ -926,7 +926,7 @@ status_handler() {
             if [ -n "${error_msg}" ]; then
               msg "Error(${http_code}), ${error_msg}" --msg-type=error --caller="${caller}->http"
             else
-              msg "[ Error(${http_code}) ]"  --msg-type=error --caller="${caller}->http"
+              msg "[ Error(${http_code}) ]" --msg-type=error --caller="${caller}->http"
             fi
             echo "Response details:"
             jq . "${RESPONSE_FILE}"
@@ -1736,7 +1736,7 @@ linode_api() {
   #         wait_status_for disk <linode_id> <disk_id> <disk_label>
   wait_status_for() {
 
-    local for wait_total linode_label linode_status linode_id disk_id disk_label disk_status
+    local for wait_total linode_label linode_status disk_id disk_label disk_status
     wait_total=0
     for="$1"
 
@@ -1771,6 +1771,8 @@ linode_api() {
         ((wait_total++))
 
         if [ "${wait_total}" -eq ${max_retries} ]; then
+          local linode_id
+          linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .id")
           [[ ${scripting} == "false" ]] && msg "Error, the status of linode --where-linode-label-is ${linode_label} has not changed into ${wait_until_linode_status} status after ${max_retries} call(s)" --caller="${caller}" --msg-type=error
           [[ ${scripting} == "false" ]] && msg "This is the maximum waiting time set in --max-wait-time option" --caller="${caller}" --msg-type=error
           [[ ${scripting} == "false" ]] && msg "You can increase the maximum waiting time by using --max-wait-time option" --caller="${caller}" --msg-type=error
@@ -1835,7 +1837,7 @@ linode_api() {
   #         check_busy-status_for linode <linode_label>
   check_busy_status_for() {
 
-    local for linode_label linode_status busy_status wait_total
+    local for linode_label linode_id linode_status busy_status wait_total
     for="$1"
     # Before performing any linode actions, we would have to make sure that linode status is not in one of the following states to prevent "Linode Busy" stuck process:
     # booting, rebooting, shutting_down, provisioning, deleting, migrating, rebuilding, cloning, restoring
@@ -1852,6 +1854,10 @@ linode_api() {
       [[ -z "${max_retries}" ]] && max_retries=120
 
       wait_total=0
+      # Linode ID is required first to check disk status
+      linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .id")
+      status_handler check --curl-status "$?"
+
       while :; do
 
         [[ ${scripting} == "false" ]] && msg "Checking linode busy status --where-linode-label-is ${linode_label} ... ${wait_total}/${max_retries}" --caller="${caller}" --msg-type=info
@@ -1895,11 +1901,10 @@ linode_api() {
       [[ -z "${max_retries}" ]] && max_retries=120
 
       wait_total=0
-
+      # Linode ID is required first to check disk status
+      linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .id")
+      status_handler check --curl-status "$?"
       while :; do
-        # Linode ID is required first to check disk status
-        linode_id=$(curl -s -H "${api_auth_string}" --url "${api_url}/linode/instances" | jq -r ".data[] | select(.label == \"${linode_label}\") | .id")
-        status_handler check --curl-status "$?"
 
         [[ ${scripting} == "false" ]] && msg "Checking linode disk busy status --where-linode-label-is ${linode_label} ... ${wait_total}/${max_retries}" --caller="${caller}"
         sleep 1
@@ -4929,7 +4934,7 @@ ADMIN_EMAIL="webmaster@sofibox.com"
 SCRIPT_PATH="$(dirname "$(readlink -f "$0")")"
 SCRIPT_NAME=$(basename -- "$0")
 SCRIPT_INSTALL_PATH="/usr/local/maxicode/${SCRIPT_NAME}"
-BOX_HOSTNAME=$(hostname)
+BOX_HOSTNAME=$(cat /etc/hostname)
 
 if ! command -v maxibuild >/dev/null 2>&1; then
   echo "Error, this script requires maxibuild to be installed. Please install maxibuild first."
