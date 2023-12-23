@@ -3,7 +3,7 @@
 umask 077
 # ==================================================
 _APP_SPECIFIC_NAME="Maxipi"
-_APP_VERSION="1.1.1"
+_APP_VERSION="1.1.2"
 _APP_STATUS="alpha"
 _APP_INFO="${_APP_SPECIFIC_NAME} is a bash script used for executing API from various providers
 such as linode, Digitalocean, Microsoft Azure, CloudFlare, Directadmin and etc"
@@ -3005,8 +3005,8 @@ linode_api() {
 
     if [ -z "${linode_id}" ]; then
       [[ ${scripting} == "false" ]] && msg "Error, no linode ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
-      [[ ${scripting} == "true" ]] && echo "error"
-      _exit 1
+      # [[ ${scripting} == "true" ]] && echo "error"
+      # _exit 1
     fi
 
     if [[ "${action^^}" == +(DELETE-CONFIGS|REMOVE-CONFIGS) ]]; then
@@ -3017,9 +3017,9 @@ linode_api() {
       status_handler check --curl-status "$?"
 
       if [ -z "${config_ids}" ]; then
-        [[ ${scripting} == "false" ]] && msg "Error, no linode config ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=error
-        [[ ${scripting} == "true" ]] && echo "error"
-        _exit 1
+        [[ ${scripting} == "false" ]] && msg "Notice, no linode config ID is found --for-linode-label ${for_linode_label}" --caller="${caller}" --msg-type=notice
+        # [[ ${scripting} == "true" ]] && echo "error"
+        # _exit 1
       fi
     else # delete-config or remove-config
       if ! is_valid not-empty-string "${for_linode_config_label}"; then
@@ -3034,9 +3034,9 @@ linode_api() {
       status_handler check --curl-status "$?"
 
       if [ -z "${config_ids}" ]; then
-        [[ ${scripting} == "false" ]] && msg "Error, no linode config is found --for-linode-label ${for_linode_label} --where-config-label-is ${for_linode_config_label}" --caller="${caller}" --msg-type=error
-        [[ ${scripting} == "true" ]] && echo "error"
-        _exit 1
+        [[ ${scripting} == "false" ]] && msg "Notice, no linode config ID is found --for-linode-label ${for_linode_label} --where-config-label-is ${for_linode_config_label}" --caller="${caller}" --msg-type=notice
+        # [[ ${scripting} == "true" ]] && echo "error"
+        # _exit 1
       fi
 
     fi
